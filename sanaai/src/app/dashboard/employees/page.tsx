@@ -44,17 +44,42 @@ export default function EmployeesPage() {
   })
 
   useEffect(() => {
-    async function load() {
-      const { data: me } = await supabase.from('users').select('tenant_id').single()
-      setTenantId(me?.tenant_id)
-      const { data } = await supabase.from('users').select('*').order('created_at', { ascending: false })
-      setEmployees(data || [])
-      const { data: logData } = await supabase.from('activity_log')
-        .select('*, users(full_name, email)').order('created_at', { ascending: false }).limit(100)
-      setLogs(logData || [])
-      setLoading(false)
+    async function init() {
+      setLoading(true)
+      try {
+        // 1. جلب هوية الشركة أولاً
+        const { data: me } = await supabase.from('users').select('tenant_id').single()
+        const tid = me?.tenant_id || null
+        setTenantId(tid)
+
+        if (!tid) {
+          alert('خطأ في تحديد هوية الشركة')
+          return
+        }
+
+        // 2. جلب الموظفين باستخدام tenant_id لكسر حاجز RLS
+        const { data: empData } = await supabase
+          .from('users')
+          .select('*')
+          .eq('tenant_id', tid) // ✅ هذا السطر هو الذي يحل مشكلة الصفحة الفارغة
+          .order('created_at', { ascending: false })
+        setEmployees(empData || [])
+
+        // 3. جلب السجلات المرتبطة بنفس الشركة
+        const { data: logData } = await supabase.from('activity_log')
+          .select('*, users(full_name, email)')
+          .eq('tenant_id', tid) // ✅ فلترة السجلات أيضاً
+          .order('created_at', { ascending: false })
+          .limit(100)
+        setLogs(logData || [])
+
+      } catch (err) {
+        console.error('Error loading employees:', err)
+      } finally {
+        setLoading(false)
+      }
     }
-    load()
+    init()
   }, [])
 
   function generatePassword() {
@@ -73,43 +98,53 @@ export default function EmployeesPage() {
   async function handleAdd() {
     if (!form.full_name || !form.email || !form.password) { alert('الاسم والبريد وكلمة المرور مطلوبة'); return }
     if (form.password.length < 8) { alert('كلمة المرور ٨ أحرف على الأقل'); return }
+    if (!tenantId) { alert('خطأ: لم يتم تحديد الشركة'); return }
+
     setSaving(true)
-    const res = await fetch('/api/create-employee', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: form.email, password: form.password,
-        full_name: form.full_name, role: form.role,
-        phone: form.phone, tenant_id: tenantId,
-        department: form.department, job_title: form.job_title,
-        start_date: form.start_date,
-        monthly_target: Number(form.monthly_target) || 0,
-        target_type: form.target_type,
-        notes: form.notes,
-      }),
-    })
-    const json = await res.json()
-    if (!res.ok) { alert('❌ ' + json.error); setSaving(false); return }
-    setEmployees(e => [json.user, ...e])
-    setShowForm(false)
-    setForm({ full_name: '', email: '', password: '', role: 'sales', phone: '', department: 'المبيعات', job_title: '', start_date: new Date().toISOString().split('T')[0], monthly_target: '', target_type: 'طلبات', notes: '' })
-    setSaving(false)
+    try {
+      const res = await fetch('/api/create-employee', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email, password: form.password,
+          full_name: form.full_name, role: form.role,
+          phone: form.phone, tenant_id: tenantId,
+          department: form.department, job_title: form.job_title,
+          start_date: form.start_date,
+          monthly_target: Number(form.monthly_target) || 0,
+          target_type: form.target_type,
+          notes: form.notes,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'حدث خطأ أثناء الإنشاء')
+      
+      setEmployees(e => [json.user, ...e])
+      setShowForm(false)
+      setForm({ full_name: '', email: '', password: '', role: 'sales', phone: '', department: 'المبيعات', job_title: '', start_date: new Date().toISOString().split('T')[0], monthly_target: '', target_type: 'طلبات', notes: '' })
+    } catch (err: any) {
+      alert('❌ ' + err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function toggleActive(id: string, current: boolean) {
-    await supabase.from('users').update({ is_active: !current }).eq('id', id)
-    setEmployees(e => e.map(x => x.id === id ? { ...x, is_active: !current } : x))
+    const { error } = await supabase.from('users').update({ is_active: !current }).eq('id', id)
+    if (!error) setEmployees(e => e.map(x => x.id === id ? { ...x, is_active: !current } : x))
   }
 
   async function updateTarget(id: string, target: number, actual: number) {
-    await supabase.from('users').update({ monthly_target: target, actual_performance: actual }).eq('id', id)
-    setEmployees(e => e.map(x => x.id === id ? { ...x, monthly_target: target, actual_performance: actual } : x))
-    setEditTarget(null)
+    const { error } = await supabase.from('users').update({ monthly_target: target, actual_performance: actual }).eq('id', id)
+    if (!error) {
+      setEmployees(e => e.map(x => x.id === id ? { ...x, monthly_target: target, actual_performance: actual } : x))
+      setEditTarget(null)
+    }
   }
 
   async function updatePermission(id: string, field: string, value: boolean) {
-    await supabase.from('users').update({ [field]: value }).eq('id', id)
-    setEmployees(e => e.map(x => x.id === id ? { ...x, [field]: value } : x))
+    const { error } = await supabase.from('users').update({ [field]: value }).eq('id', id)
+    if (!error) setEmployees(e => e.map(x => x.id === id ? { ...x, [field]: value } : x))
   }
 
   function getProgress(actual: number, target: number) {
@@ -157,12 +192,8 @@ export default function EmployeesPage() {
         ))}
       </div>
 
-      {/* ══════════════════════════════════════════
-          TAB 1 — الموظفون
-      ══════════════════════════════════════════ */}
       {tab === 'employees' && (
         <>
-          {/* Add Form */}
           {showForm && (
             <div className="bg-[#111927] rounded-2xl border border-amber-500/20 p-6 mb-6">
               <h2 className="text-sm font-bold text-amber-400 mb-5">إضافة موظف جديد</h2>
@@ -206,14 +237,12 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              {/* ملاحظات */}
               <div className="mb-4">
                 <label className="block text-xs text-gray-500 mb-1">ملاحظات</label>
                 <textarea className={inputCls + ' resize-none'} rows={2} placeholder="أي ملاحظات..."
                   value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
 
-              {/* Password */}
               <div className="mb-5">
                 <label className="block text-xs text-gray-500 mb-1">كلمة المرور * (٨ أحرف+)</label>
                 <div className="flex gap-2">
@@ -250,9 +279,8 @@ export default function EmployeesPage() {
             </div>
           )}
 
-          {/* Employees Table */}
           {loading ? (
-            <div className="text-center py-16 text-gray-600">جاري التحميل...</div>
+            <div className="text-center py-16 text-gray-600">جاري تحميل الموظفين...</div>
           ) : (
             <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-x-auto">
               <table className="w-full text-sm">
@@ -287,8 +315,6 @@ export default function EmployeesPage() {
                         <td className={tdCls + ' text-gray-500'}>
                           {emp.start_date ? new Date(emp.start_date).toLocaleDateString('ar-EG') : new Date(emp.created_at).toLocaleDateString('ar-EG')}
                         </td>
-
-                        {/* Target */}
                         <td className={tdCls}>
                           {editTarget === emp.id ? (
                             <input type="number" defaultValue={emp.monthly_target || 0}
@@ -301,10 +327,7 @@ export default function EmployeesPage() {
                             </button>
                           )}
                         </td>
-
                         <td className={tdCls + ' text-gray-500'}>{emp.target_type || '—'}</td>
-
-                        {/* Actual */}
                         <td className={tdCls}>
                           {editTarget === emp.id ? (
                             <input type="number" defaultValue={emp.actual_performance || 0}
@@ -314,8 +337,6 @@ export default function EmployeesPage() {
                             <span className="text-white font-bold">{emp.actual_performance || 0}</span>
                           )}
                         </td>
-
-                        {/* Progress */}
                         <td className={tdCls}>
                           <div className="flex items-center gap-2 min-w-[80px]">
                             <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
@@ -324,10 +345,7 @@ export default function EmployeesPage() {
                             <span style={{ color: pColor }} className="font-bold text-[10px]">{pct}%</span>
                           </div>
                         </td>
-
                         <td className={tdCls + ' text-gray-500 max-w-[120px] truncate'}>{emp.notes || '—'}</td>
-
-                        {/* Status */}
                         <td className={tdCls}>
                           <button onClick={() => toggleActive(emp.id, emp.is_active)}
                             className={`text-[10px] px-2 py-0.5 rounded-full border transition ${
@@ -337,7 +355,6 @@ export default function EmployeesPage() {
                             {emp.is_active ? 'نشط' : 'غير نشط'}
                           </button>
                         </td>
-
                         <td className={tdCls}>
                           <button onClick={() => setEditTarget(editTarget === emp.id ? null : emp.id)}
                             className="text-gray-600 hover:text-amber-400 transition text-xs">
@@ -348,7 +365,7 @@ export default function EmployeesPage() {
                     )
                   })}
                   {employees.length === 0 && (
-                    <tr><td colSpan={12} className="text-center py-12 text-gray-600">لا يوجد موظفين</td></tr>
+                    <tr><td colSpan={12} className="text-center py-12 text-gray-600">لا يوجد موظفين مسجلين لهذه الشركة</td></tr>
                   )}
                 </tbody>
               </table>
@@ -357,9 +374,6 @@ export default function EmployeesPage() {
         </>
       )}
 
-      {/* ══════════════════════════════════════════
-          TAB 2 — الصلاحيات
-      ══════════════════════════════════════════ */}
       {tab === 'permissions' && (
         <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-x-auto">
           <table className="w-full text-sm">
@@ -417,13 +431,10 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════
-          TAB 3 — سجل التغييرات
-      ══════════════════════════════════════════ */}
       {tab === 'changelog' && (
         <div className="space-y-2">
           {logs.length === 0 ? (
-            <div className="text-center py-16 text-gray-600">لا يوجد سجل نشاط</div>
+            <div className="text-center py-16 text-gray-600">لا يوجد سجل نشاط لهذه الشركة</div>
           ) : (
             <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-x-auto">
               <table className="w-full text-sm">
