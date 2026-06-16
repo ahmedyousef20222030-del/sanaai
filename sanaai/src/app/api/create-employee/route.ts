@@ -9,49 +9,35 @@ const supabaseAdmin = createClient(
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { 
-      email, password, full_name, role, phone, 
-      tenant_id, department, job_title, start_date, 
-      monthly_target, target_type, notes 
-    } = body
+    const { email, password, full_name, role, phone, tenant_id, department, job_title, start_date, monthly_target, target_type, notes } = body
 
-    // 1. التحقق من البيانات الأساسية
     if (!email || !password || !full_name) {
       return NextResponse.json({ error: 'الاسم والبريد وكلمة المرور مطلوبة' }, { status: 400 })
     }
 
-    // 2. التحقق من وجود tenant_id (ضروري جداً لمنع خطأ Foreign Key)
-    if (!tenant_id) {
-      return NextResponse.json({ error: 'يجب تحديد المصنع (Tenant ID) لإضافة الموظف' }, { status: 400 })
-    }
+    // تحقق لو المستخدم موجود في Auth
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+    const existingAuthUser = existingUsers?.users?.find(u => u.email === email)
 
-    // 3. التعامل مع حساب الـ Auth (إنشاء أو تحديث)
     let userId: string
 
-    // بدلاً من listUsers (البطيئة)، نحاول إنشاء مستخدم جديد
-    // إذا كان موجوداً، سيعيد لنا خطأ، حينها نبحث عن الـ ID الخاص به
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email, password, email_confirm: true,
-      user_metadata: { full_name }
-    })
-
-    if (authError) {
-      // إذا كان الخطأ هو أن المستخدم موجود بالفعل، نجلب الـ ID الخاص به
-      if (authError.message.includes('already registered')) {
-        const { data: existingUser, error: fetchError } = await supabaseAdmin.auth.admin.listUsers()
-        const found = existingUser?.users?.find(u => u.email === email)
-        if (!found) throw new Error('تعذر العثور على المستخدم الموجود')
-        userId = found.id
-        // تحديث كلمة المرور للمستخدم الموجود
-        await supabaseAdmin.auth.admin.updateUserById(userId, { password })
-      } else {
-        throw authError
-      }
+    if (existingAuthUser) {
+      // المستخدم موجود في Auth — استخدم نفس الـ id
+      userId = existingAuthUser.id
+      // حدّث كلمة المرور
+      await supabaseAdmin.auth.admin.updateUserById(userId, { password })
     } else {
+      // أنشئ مستخدم جديد في Auth
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email, password, email_confirm: true,
+      })
+      if (authError) return NextResponse.json({ error: authError.message }, { status: 400 })
       userId = authData.user.id
     }
 
-    // 4. الإدخال في جدول public.users (متوافق مع v1.1)
+    const resolvedTenantId = tenant_id || userId
+
+    // upsert في جدول users
     const { data: user, error: dbError } = await supabaseAdmin
       .from('users')
       .upsert({
@@ -60,15 +46,15 @@ export async function POST(req: Request) {
         full_name,
         role: role || 'sales',
         phone: phone || null,
-        tenant_id: tenant_id, // ✅ نستخدم tenant_id الحقيقي فقط
+        tenant_id: resolvedTenantId,
         department: department || null,
         job_title: job_title || null,
         start_date: start_date || null,
-        monthly_target: Number(monthly_//target) || 0,
-        target_type: target_type || 'جنيه',
+        monthly_target: Number(monthly_target) || 0,
+        target_type: target_type || 'طلبات',
         notes: notes || null,
         is_active: true,
-        target_actual: 0, // ✅ تصحيح المسمى من actual_performance إلى target_actual
+        actual_performance: 0,
         can_edit_production: false,
         can_view_clients: true,
         can_edit_orders: false,
@@ -83,7 +69,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ user }, { status: 201 })
 
   } catch (err: any) {
-    console.error('Create Employee Error:', err)
-    return NextResponse.json({ error: err.message || 'خطأ غير متوقع في السيرفر' }, { status: 500 })
+    return NextResponse.json({ error: err.message || 'خطأ غير متوقع' }, { status: 500 })
   }
 }
