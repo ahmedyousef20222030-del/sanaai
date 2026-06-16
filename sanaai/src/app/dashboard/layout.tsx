@@ -13,8 +13,12 @@ const navItems = [
     { label: 'العملاء',   icon: '🏢', path: '/dashboard/clients' },
     { label: 'خط الإنتاج',icon: '🔄', path: '/dashboard/pipeline' },
   ]},
+  { section: 'التوريدات والمخازن', items: [ // قسم جديد لتجميع كل ما يخص التوريد
+    { label: 'الموردين',     icon: '🤝', path: '/dashboard/suppliers' }, // أضفناه من المجلدات ✅
+    { label: 'المشتريات',    icon: '🛒', path: '/dashboard/procurement' }, // أضفناه سابقاً ✅
+    { label: 'المخزون',      icon: '📦', path: '/dashboard/inventory' }, // أضفناه من المجلدات ✅
+  ]},
   { section: 'التشغيل', items: [
-    { label: 'المشتريات',     icon: '🛒', path: '/dashboard/procurement' }, // تم إضافة هذا السطر ✅
     { label: 'الإنتاج',          icon: '⚙️', path: '/dashboard/production' },
     { label: 'الجودة',           icon: '🔍', path: '/dashboard/quality' },
     { label: 'المعروض على الرف', icon: '🏪', path: '/dashboard/showroom' },
