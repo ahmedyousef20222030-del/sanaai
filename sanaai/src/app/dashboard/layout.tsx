@@ -14,6 +14,7 @@ const navItems = [
     { label: 'خط الإنتاج',icon: '🔄', path: '/dashboard/pipeline' },
   ]},
   { section: 'التشغيل', items: [
+    { label: 'المشتريات',     icon: '🛒', path: '/dashboard/procurement' }, // تم إضافة هذا السطر ✅
     { label: 'الإنتاج',          icon: '⚙️', path: '/dashboard/production' },
     { label: 'الجودة',           icon: '🔍', path: '/dashboard/quality' },
     { label: 'المعروض على الرف', icon: '🏪', path: '/dashboard/showroom' },
