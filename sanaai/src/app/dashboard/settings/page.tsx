@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'company' | 'users' | 'notifications' | 'defaults'>('company')
   const [loading, setLoading] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [pageLoading, setPageLoading] = useState(true) // حالة تحميل الصفحة لأول مرة
 
   // بيانات الشركة
   const [tenant, setTenant] = useState<Partial<Tenant>>({})
@@ -69,44 +70,72 @@ export default function SettingsPage() {
   }, [])
 
   async function loadData() {
-    const { data: userData } = await supabase.from('users').select('tenant_id').single()
-    if (!userData) return
+    setPageLoading(true)
+    try {
+      // 1. جلب الـ tenant_id الخاص بالمستخدم الحالي
+      const { data: userData } = await supabase.from('users').select('tenant_id').single()
+      if (!userData || !userData.tenant_id) {
+        console.error("No tenant ID found for this user")
+        return
+      }
 
-    const { data: tenantData } = await supabase
-      .from('tenants').select('*').eq('id', userData.tenant_id).single()
-    if (tenantData) setTenant(tenantData)
+      const tid = userData.tenant_id
 
-    const { data: usersData } = await supabase
-      .from('users').select('*').eq('tenant_id', userData.tenant_id)
-    if (usersData) setUsers(usersData)
+      // 2. جلب بيانات الشركة باستخدام الـ ID
+      const { data: tenantData } = await supabase
+        .from('tenants').select('*').eq('id', tid).single()
+      if (tenantData) setTenant(tenantData)
+
+      // 3. جلب المستخدمين التابعين لهذه الشركة فقط
+      const { data: usersData } = await supabase
+        .from('users').select('*').eq('tenant_id', tid)
+      if (usersData) setUsers(usersData)
+
+    } catch (err) {
+      console.error("Error loading settings data:", err)
+    } finally {
+      setPageLoading(false)
+    }
   }
 
   async function saveTenant() {
-    setLoading(true)
-    const { error } = await supabase
-      .from('tenants').update({
-        name: tenant.name,
-        phone: tenant.phone,
-        address: tenant.address,
-        city: tenant.city,
-        currency: tenant.currency,
-        order_prefix: tenant.order_prefix,
-      }).eq('id', tenant.id!)
+    // 🛡️ صمام الأمان: التأكد من وجود ID قبل الإرسال لمنع خطأ UUID undefined
+    if (!tenant.id) {
+      alert('خطأ: لم يتم تحميل معرف الشركة. يرجى تحديث الصفحة والمحاولة مرة أخرى.')
+      return
+    }
 
-    setLoading(false)
-    if (error) { alert('خطأ: ' + error.message); return }
-    setSaveMsg('✅ تم الحفظ بنجاح')
-    setTimeout(() => setSaveMsg(''), 3000)
+    setLoading(true)
+    try {
+      const { error } = await supabase
+        .from('tenants').update({
+          name: tenant.name,
+          phone: tenant.phone,
+          address: tenant.address,
+          city: tenant.city,
+          currency: tenant.currency,
+          order_prefix: tenant.order_prefix,
+        }).eq('id', tenant.id) // حذف علامة ! واستخدام التحقق أعلاه
+
+      if (error) throw error
+
+      setSaveMsg('✅ تم الحفظ بنجاح')
+      setTimeout(() => setSaveMsg(''), 3000)
+    } catch (err: any) {
+      alert('خطأ أثناء الحفظ: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function toggleUserActive(userId: string, current: boolean) {
-    await supabase.from('users').update({ is_active: !current }).eq('id', userId)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, is_active: !current } : x))
+    const { error } = await supabase.from('users').update({ is_active: !current }).eq('id', userId)
+    if (!error) setUsers(u => u.map(x => x.id === userId ? { ...x, is_active: !current } : x))
   }
 
   async function changeUserRole(userId: string, role: string) {
-    await supabase.from('users').update({ role }).eq('id', userId)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, role } : x))
+    const { error } = await supabase.from('users').update({ role }).eq('id', userId)
+    if (!error) setUsers(u => u.map(x => x.id === userId ? { ...x, role } : x))
   }
 
   const tabs = [
@@ -115,6 +144,14 @@ export default function SettingsPage() {
     { key: 'notifications', label: '🔔 الإشعارات' },
     { key: 'defaults', label: '⚙️ البيانات الافتراضية' },
   ]
+
+  if (pageLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#080C12] text-white">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 min-h-screen" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
