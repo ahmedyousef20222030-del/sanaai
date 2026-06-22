@@ -40,7 +40,7 @@ export default function ChangelogPage() {
                 {log.action === 'create' ? 'إنشاء' : log.action === 'update' ? 'تعديل' : log.action === 'delete' ? 'حذف' : log.action}
               </span>
               <div className="flex-1">
-                <span className="text-xs text-white">{log.description || log.table_name}</span>
+                <span className="text-xs text-white">{log.entity_label || log.entity_type}</span>
                 {log.users?.full_name && (
                   <span className="text-[10px] text-gray-600 mr-2">— {log.users.full_name}</span>
                 )}

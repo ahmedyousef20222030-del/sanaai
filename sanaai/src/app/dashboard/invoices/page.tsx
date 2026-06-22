@@ -19,7 +19,7 @@ export default function InvoicesPage() {
     // ✅ جلب البيانات باستخدام المسميات الصحيحة في v1.1
     const { data, error } = await supabase
       .from('invoices')
-      .select('*, orders(order_number, total_price, deposit_paid, clients(name, phone))')
+      .select('*, orders(order_number, total_price, deposit_paid, quantity, clients(name, phone))')
       .order('created_at', { ascending: false })
     
     if (!error) setInvoices(data || [])

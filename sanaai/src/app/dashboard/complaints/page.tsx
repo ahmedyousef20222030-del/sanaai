@@ -8,7 +8,7 @@ export default function ComplaintsPage() {
   const [loading, setLoading]       = useState(true)
   const [saving, setSaving]         = useState<string | null>(null)
   const [showForm, setShowForm]     = useState(false)
-  const [form, setForm]             = useState({ title: '', description: '', priority: 'متوسط' })
+  const [form, setForm]             = useState({ complaint_type: '', description: '', priority: 'متوسط' })
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -26,12 +26,24 @@ export default function ComplaintsPage() {
   }
 
   async function handleAdd() {
-    if (!form.title) { alert('العنوان مطلوب'); return }
+    if (!form.complaint_type) { alert('العنوان مطلوب'); return }
     setSubmitting(true)
     const { data: tenant } = await supabase.from('users').select('tenant_id').single()
     const { data, error } = await supabase.from('complaints')
-      .insert({ ...form, tenant_id: tenant?.tenant_id, status: 'جديد' }).select().single()
-    if (!error && data) { setComplaints(c => [data, ...c]); setShowForm(false); setForm({ title: '', description: '', priority: 'متوسط' }) }
+      .insert({
+        complaint_number: `CMP-${Date.now().toString().slice(-6)}`,
+        complaint_type: form.complaint_type,
+        description: form.description,
+        priority: form.priority,
+        tenant_id: tenant?.tenant_id,
+        status: 'جديد',
+      }).select().single()
+    if (!error && data) {
+      setComplaints(c => [data, ...c]); setShowForm(false)
+      setForm({ complaint_type: '', description: '', priority: 'متوسط' })
+    } else if (error) {
+      alert('خطأ في الحفظ: ' + error.message)
+    }
     setSubmitting(false)
   }
 
@@ -80,7 +92,7 @@ export default function ComplaintsPage() {
         <div className="bg-[#111927] rounded-2xl border border-amber-500/20 p-5 mb-6">
           <h2 className="text-sm font-bold text-amber-400 mb-4">إضافة شكوى جديدة</h2>
           <div className="space-y-3">
-            <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+            <input value={form.complaint_type} onChange={e => setForm(f => ({ ...f, complaint_type: e.target.value }))}
               placeholder="عنوان الشكوى *"
               className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50" />
             <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -115,7 +127,7 @@ export default function ComplaintsPage() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-bold text-white text-sm">{c.title}</h3>
+                    <h3 className="font-bold text-white text-sm">{c.complaint_type}</h3>
                     {c.priority && (
                       <span className={`text-[10px] font-bold ${priorityColor[c.priority]}`}>
                         ● {c.priority}

@@ -73,6 +73,7 @@ export default function ProductionBoardPage() {
         .from('production')
         .select(`
           *,
+          supervisor:users!supervisor_id ( full_name ),
           orders (
             order_number, order_date, expected_delivery,
             total_price, deposit_paid, remaining,
@@ -92,8 +93,8 @@ export default function ProductionBoardPage() {
         order_date:       p.orders?.order_date      || '',
         end_date:         p.orders?.expected_delivery,
         final_status:     p.final_status            || 'بانتظار التنفيذ',
-        sales_rep:        p.supervisor              || '—',
-        supervisor:       p.supervisor,
+        sales_rep:        p.supervisor?.full_name || '—',
+        supervisor:       p.supervisor?.full_name,
         address:          p.orders?.clients?.address,
         notes:            p.orders?.notes,
         total_price:      p.orders?.total_price,

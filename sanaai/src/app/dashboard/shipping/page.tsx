@@ -17,7 +17,7 @@ export default function ShippingPage() {
     // جلب الشحنات مع بيانات الطلب والعميل (ربط صحيح حسب v1.1)
     const { data, error } = await supabase
       .from('shipments')
-      .select('*, orders(order_number, clients(name, phone))')
+      .select('*, orders(order_number, actual_delivery, clients(name, phone))')
       .order('created_at', { ascending: false })
     
     if (!error) setShipments(data || [])

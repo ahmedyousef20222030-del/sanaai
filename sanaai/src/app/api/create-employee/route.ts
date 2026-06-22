@@ -9,7 +9,7 @@ const supabaseAdmin = createClient(
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { email, password, full_name, role, phone, tenant_id, department, job_title, start_date, monthly_target, target_type, notes } = body
+    const { email, password, full_name, role, phone, tenant_id, department, job_title, start_date, monthly_target, target_type } = body
 
     if (!email || !password || !full_name) {
       return NextResponse.json({ error: 'الاسم والبريد وكلمة المرور مطلوبة' }, { status: 400 })
@@ -52,9 +52,8 @@ export async function POST(req: Request) {
         start_date: start_date || null,
         monthly_target: Number(monthly_target) || 0,
         target_type: target_type || 'طلبات',
-        notes: notes || null,
         is_active: true,
-        actual_performance: 0,
+        target_actual: 0,
         can_edit_production: false,
         can_view_clients: true,
         can_edit_orders: false,

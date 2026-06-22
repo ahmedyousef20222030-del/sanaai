@@ -40,7 +40,7 @@ export default function EmployeesPage() {
     full_name: '', email: '', password: '', role: 'sales',
     phone: '', department: 'المبيعات', job_title: '',
     start_date: new Date().toISOString().split('T')[0],
-    monthly_target: '', target_type: 'طلبات', notes: '',
+    monthly_target: '', target_type: 'طلبات',
   })
 
   useEffect(() => {
@@ -113,7 +113,6 @@ export default function EmployeesPage() {
           start_date: form.start_date,
           monthly_target: Number(form.monthly_target) || 0,
           target_type: form.target_type,
-          notes: form.notes,
         }),
       })
       const json = await res.json()
@@ -121,7 +120,7 @@ export default function EmployeesPage() {
       
       setEmployees(e => [json.user, ...e])
       setShowForm(false)
-      setForm({ full_name: '', email: '', password: '', role: 'sales', phone: '', department: 'المبيعات', job_title: '', start_date: new Date().toISOString().split('T')[0], monthly_target: '', target_type: 'طلبات', notes: '' })
+      setForm({ full_name: '', email: '', password: '', role: 'sales', phone: '', department: 'المبيعات', job_title: '', start_date: new Date().toISOString().split('T')[0], monthly_target: '', target_type: 'طلبات' })
     } catch (err: any) {
       alert('❌ ' + err.message)
     } finally {
@@ -135,9 +134,9 @@ export default function EmployeesPage() {
   }
 
   async function updateTarget(id: string, target: number, actual: number) {
-    const { error } = await supabase.from('users').update({ monthly_target: target, actual_performance: actual }).eq('id', id)
+    const { error } = await supabase.from('users').update({ monthly_target: target, target_actual: actual }).eq('id', id)
     if (!error) {
-      setEmployees(e => e.map(x => x.id === id ? { ...x, monthly_target: target, actual_performance: actual } : x))
+      setEmployees(e => e.map(x => x.id === id ? { ...x, monthly_target: target, target_actual: actual } : x))
       setEditTarget(null)
     }
   }
@@ -237,12 +236,6 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="mb-4">
-                <label className="block text-xs text-gray-500 mb-1">ملاحظات</label>
-                <textarea className={inputCls + ' resize-none'} rows={2} placeholder="أي ملاحظات..."
-                  value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
-              </div>
-
               <div className="mb-5">
                 <label className="block text-xs text-gray-500 mb-1">كلمة المرور * (٨ أحرف+)</label>
                 <div className="flex gap-2">
@@ -286,14 +279,14 @@ export default function EmployeesPage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-white/5">
                   <tr>
-                    {['كود', 'الاسم', 'القسم', 'الوظيفة', 'تاريخ البدء', 'التارجت', 'نوع التارجت', 'الأداء الفعلي', 'الإنجاز %', 'ملاحظات', 'الحالة', ''].map(h => (
+                    {['كود', 'الاسم', 'القسم', 'الوظيفة', 'تاريخ البدء', 'التارجت', 'نوع التارجت', 'الأداء الفعلي', 'الإنجاز %', 'الحالة', ''].map(h => (
                       <th key={h} className={thCls}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {employees.map((emp, i) => {
-                    const pct = getProgress(emp.actual_performance || 0, emp.monthly_target || 0)
+                    const pct = getProgress(emp.target_actual || 0, emp.monthly_target || 0)
                     const pColor = getProgressColor(pct)
                     const code = `EMP-${String(i + 1).padStart(3, '0')}`
                     return (
@@ -319,7 +312,7 @@ export default function EmployeesPage() {
                           {editTarget === emp.id ? (
                             <input type="number" defaultValue={emp.monthly_target || 0}
                               className="w-20 bg-[#0D1B2A] border border-amber-500/30 rounded px-2 py-1 text-xs text-white focus:outline-none"
-                              onBlur={e => updateTarget(emp.id, Number(e.target.value), emp.actual_performance || 0)} />
+                              onBlur={e => updateTarget(emp.id, Number(e.target.value), emp.target_actual || 0)} />
                           ) : (
                             <button onClick={() => setEditTarget(emp.id)}
                               className="text-amber-400 font-bold hover:underline">
@@ -330,11 +323,11 @@ export default function EmployeesPage() {
                         <td className={tdCls + ' text-gray-500'}>{emp.target_type || '—'}</td>
                         <td className={tdCls}>
                           {editTarget === emp.id ? (
-                            <input type="number" defaultValue={emp.actual_performance || 0}
+                            <input type="number" defaultValue={emp.target_actual || 0}
                               className="w-20 bg-[#0D1B2A] border border-amber-500/30 rounded px-2 py-1 text-xs text-white focus:outline-none"
                               onBlur={e => updateTarget(emp.id, emp.monthly_target || 0, Number(e.target.value))} />
                           ) : (
-                            <span className="text-white font-bold">{emp.actual_performance || 0}</span>
+                            <span className="text-white font-bold">{emp.target_actual || 0}</span>
                           )}
                         </td>
                         <td className={tdCls}>
@@ -345,7 +338,6 @@ export default function EmployeesPage() {
                             <span style={{ color: pColor }} className="font-bold text-[10px]">{pct}%</span>
                           </div>
                         </td>
-                        <td className={tdCls + ' text-gray-500 max-w-[120px] truncate'}>{emp.notes || '—'}</td>
                         <td className={tdCls}>
                           <button onClick={() => toggleActive(emp.id, emp.is_active)}
                             className={`text-[10px] px-2 py-0.5 rounded-full border transition ${
@@ -421,7 +413,7 @@ export default function EmployeesPage() {
                     </td>
                     <td className={tdCls + ' text-gray-500 text-[10px]'}>{emp.email}</td>
                     <td className={tdCls + ' text-gray-600 text-[10px]'}>
-                      {emp.last_sign_in_at ? new Date(emp.last_sign_in_at).toLocaleDateString('ar-EG') : '—'}
+                      {emp.last_login_at ? new Date(emp.last_login_at).toLocaleDateString('ar-EG') : '—'}
                     </td>
                   </tr>
                 )
@@ -461,8 +453,8 @@ export default function EmployeesPage() {
                           {log.action === 'create' ? 'إنشاء' : log.action === 'update' ? 'تعديل' : log.action === 'delete' ? 'حذف' : log.action}
                         </span>
                       </td>
-                      <td className={tdCls + ' font-mono text-amber-400 text-[10px]'}>{log.table_name || '—'}</td>
-                      <td className={tdCls + ' text-gray-500'}>{log.description || '—'}</td>
+                      <td className={tdCls + ' font-mono text-amber-400 text-[10px]'}>{log.entity_type || '—'}</td>
+                      <td className={tdCls + ' text-gray-500'}>{log.entity_label || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
