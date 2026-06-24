@@ -36,6 +36,7 @@ export default function EmployeesPage() {
   const [copied, setCopied]       = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<string | null>(null)
 
+  // ✅ حذف notes - لا يوجد عمود notes في جدول users
   const [form, setForm] = useState({
     full_name: '', email: '', password: '', role: 'sales',
     phone: '', department: 'المبيعات', job_title: '',
@@ -47,32 +48,19 @@ export default function EmployeesPage() {
     async function init() {
       setLoading(true)
       try {
-        // 1. جلب هوية الشركة أولاً
         const { data: me } = await supabase.from('users').select('tenant_id').single()
         const tid = me?.tenant_id || null
         setTenantId(tid)
+        if (!tid) { alert('خطأ في تحديد هوية الشركة'); return }
 
-        if (!tid) {
-          alert('خطأ في تحديد هوية الشركة')
-          return
-        }
-
-        // 2. جلب الموظفين باستخدام tenant_id لكسر حاجز RLS
         const { data: empData } = await supabase
-          .from('users')
-          .select('*')
-          .eq('tenant_id', tid) // ✅ هذا السطر هو الذي يحل مشكلة الصفحة الفارغة
-          .order('created_at', { ascending: false })
+          .from('users').select('*').eq('tenant_id', tid).order('created_at', { ascending: false })
         setEmployees(empData || [])
 
-        // 3. جلب السجلات المرتبطة بنفس الشركة
-        const { data: logData } = await supabase.from('activity_log')
-          .select('*, users(full_name, email)')
-          .eq('tenant_id', tid) // ✅ فلترة السجلات أيضاً
-          .order('created_at', { ascending: false })
-          .limit(100)
+        const { data: logData } = await supabase
+          .from('activity_log').select('*, users(full_name, email)').eq('tenant_id', tid)
+          .order('created_at', { ascending: false }).limit(100)
         setLogs(logData || [])
-
       } catch (err) {
         console.error('Error loading employees:', err)
       } finally {
@@ -91,41 +79,35 @@ export default function EmployeesPage() {
 
   async function copyText(text: string, id: string) {
     await navigator.clipboard.writeText(text)
-    setCopied(id)
-    setTimeout(() => setCopied(null), 2000)
+    setCopied(id); setTimeout(() => setCopied(null), 2000)
   }
 
   async function handleAdd() {
     if (!form.full_name || !form.email || !form.password) { alert('الاسم والبريد وكلمة المرور مطلوبة'); return }
     if (form.password.length < 8) { alert('كلمة المرور ٨ أحرف على الأقل'); return }
     if (!tenantId) { alert('خطأ: لم يتم تحديد الشركة'); return }
-
     setSaving(true)
     try {
       const res = await fetch('/api/create-employee', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // ✅ بدون notes
         body: JSON.stringify({
-          email: form.email, password: form.password,
-          full_name: form.full_name, role: form.role,
-          phone: form.phone, tenant_id: tenantId,
-          department: form.department, job_title: form.job_title,
-          start_date: form.start_date,
-          monthly_target: Number(form.monthly_target) || 0,
-          target_type: form.target_type,
+          email: form.email, password: form.password, full_name: form.full_name,
+          role: form.role, phone: form.phone, tenant_id: tenantId,
+          department: form.department, job_title: form.job_title, start_date: form.start_date,
+          monthly_target: Number(form.monthly_target) || 0, target_type: form.target_type,
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'حدث خطأ أثناء الإنشاء')
-      
       setEmployees(e => [json.user, ...e])
       setShowForm(false)
-      setForm({ full_name: '', email: '', password: '', role: 'sales', phone: '', department: 'المبيعات', job_title: '', start_date: new Date().toISOString().split('T')[0], monthly_target: '', target_type: 'طلبات' })
+      setForm({ full_name: '', email: '', password: '', role: 'sales', phone: '',
+        department: 'المبيعات', job_title: '', start_date: new Date().toISOString().split('T')[0],
+        monthly_target: '', target_type: 'طلبات' })
     } catch (err: any) {
       alert('❌ ' + err.message)
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   async function toggleActive(id: string, current: boolean) {
@@ -133,8 +115,10 @@ export default function EmployeesPage() {
     if (!error) setEmployees(e => e.map(x => x.id === id ? { ...x, is_active: !current } : x))
   }
 
+  // ✅ target_actual بدلاً من actual_performance
   async function updateTarget(id: string, target: number, actual: number) {
-    const { error } = await supabase.from('users').update({ monthly_target: target, target_actual: actual }).eq('id', id)
+    const { error } = await supabase.from('users')
+      .update({ monthly_target: target, target_actual: actual }).eq('id', id)
     if (!error) {
       setEmployees(e => e.map(x => x.id === id ? { ...x, monthly_target: target, target_actual: actual } : x))
       setEditTarget(null)
@@ -150,7 +134,6 @@ export default function EmployeesPage() {
     if (!target) return 0
     return Math.min(Math.round((actual / target) * 100), 100)
   }
-
   function getProgressColor(pct: number) {
     if (pct >= 100) return '#2ECC71'
     if (pct >= 70)  return '#C8963E'
@@ -165,8 +148,6 @@ export default function EmployeesPage() {
 
   return (
     <div className="p-6 min-h-screen" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
-
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-black text-white">👥 الموظفين</h1>
@@ -180,7 +161,6 @@ export default function EmployeesPage() {
         )}
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-2 mb-6 bg-[#111927] p-1.5 rounded-xl w-fit">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
@@ -191,6 +171,7 @@ export default function EmployeesPage() {
         ))}
       </div>
 
+      {/* ═══ الموظفون ═══ */}
       {tab === 'employees' && (
         <>
           {showForm && (
@@ -207,8 +188,7 @@ export default function EmployeesPage() {
                   <div key={f.key}>
                     <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
                     <input className={inputCls} type={f.type || 'text'} placeholder={f.placeholder}
-                      value={(form as any)[f.key]}
-                      onChange={e => setForm(x => ({ ...x, [f.key]: e.target.value }))} />
+                      value={(form as any)[f.key]} onChange={e => setForm(x => ({ ...x, [f.key]: e.target.value }))} />
                   </div>
                 ))}
                 <div>
@@ -225,8 +205,8 @@ export default function EmployeesPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">التارجت الشهري</label>
-                  <input className={inputCls} type="number" placeholder="مثال: 50"
-                    value={form.monthly_target} onChange={e => setForm(f => ({ ...f, monthly_target: e.target.value }))} />
+                  <input className={inputCls} type="number" placeholder="مثال: 50" value={form.monthly_target}
+                    onChange={e => setForm(f => ({ ...f, monthly_target: e.target.value }))} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">نوع التارجت</label>
@@ -239,15 +219,11 @@ export default function EmployeesPage() {
               <div className="mb-5">
                 <label className="block text-xs text-gray-500 mb-1">كلمة المرور * (٨ أحرف+)</label>
                 <div className="flex gap-2">
-                  <input className={inputCls} placeholder="اكتب أو اضغط توليد"
-                    value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
-                  <button onClick={generatePassword}
-                    className="px-3 py-2 bg-white/10 text-gray-400 rounded-lg text-xs hover:bg-white/15 transition whitespace-nowrap">
-                    🔀 توليد
-                  </button>
+                  <input className={inputCls} placeholder="اكتب أو اضغط توليد" value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+                  <button onClick={generatePassword} className="px-3 py-2 bg-white/10 text-gray-400 rounded-lg text-xs hover:bg-white/15 transition whitespace-nowrap">🔀 توليد</button>
                   {form.password && (
-                    <button onClick={() => copyText(form.password, 'form')}
-                      className="px-3 py-2 bg-white/10 text-gray-400 rounded-lg text-xs hover:bg-white/15 transition whitespace-nowrap">
+                    <button onClick={() => copyText(form.password, 'form')} className="px-3 py-2 bg-white/10 text-gray-400 rounded-lg text-xs hover:bg-white/15 transition whitespace-nowrap">
                       {copied === 'form' ? '✅' : '📋 نسخ'}
                     </button>
                   )}
@@ -264,10 +240,7 @@ export default function EmployeesPage() {
                   className="px-6 py-2.5 bg-amber-500 text-black font-bold rounded-xl text-sm hover:bg-amber-400 transition disabled:opacity-50">
                   {saving ? 'جاري الإنشاء...' : '✅ إنشاء الحساب'}
                 </button>
-                <button onClick={() => setShowForm(false)}
-                  className="px-6 py-2.5 border border-white/10 text-gray-400 rounded-xl text-sm hover:bg-white/5 transition">
-                  إلغاء
-                </button>
+                <button onClick={() => setShowForm(false)} className="px-6 py-2.5 border border-white/10 text-gray-400 rounded-xl text-sm hover:bg-white/5 transition">إلغاء</button>
               </div>
             </div>
           )}
@@ -279,24 +252,23 @@ export default function EmployeesPage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-white/5">
                   <tr>
-                    {['كود', 'الاسم', 'القسم', 'الوظيفة', 'تاريخ البدء', 'التارجت', 'نوع التارجت', 'الأداء الفعلي', 'الإنجاز %', 'الحالة', ''].map(h => (
+                    {['كود','الاسم','القسم','الوظيفة','تاريخ البدء','التارجت','نوع التارجت','الأداء الفعلي','الإنجاز %','الحالة',''].map(h => (
                       <th key={h} className={thCls}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {employees.map((emp, i) => {
-                    const pct = getProgress(emp.target_actual || 0, emp.monthly_target || 0)
+                    // ✅ target_actual بدلاً من actual_performance
+                    const pct    = getProgress(emp.target_actual || 0, emp.monthly_target || 0)
                     const pColor = getProgressColor(pct)
-                    const code = `EMP-${String(i + 1).padStart(3, '0')}`
+                    const code   = `EMP-${String(i + 1).padStart(3, '0')}`
                     return (
                       <tr key={emp.id} className="border-b border-white/5 hover:bg-white/5 transition">
                         <td className={tdCls + ' font-mono text-amber-400'}>{code}</td>
                         <td className={tdCls}>
                           <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">
-                              {emp.full_name?.[0] || '?'}
-                            </div>
+                            <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">{emp.full_name?.[0] || '?'}</div>
                             <div>
                               <div className="text-white font-semibold">{emp.full_name}</div>
                               <div className="text-gray-600 text-[10px]">{emp.email}</div>
@@ -314,10 +286,7 @@ export default function EmployeesPage() {
                               className="w-20 bg-[#0D1B2A] border border-amber-500/30 rounded px-2 py-1 text-xs text-white focus:outline-none"
                               onBlur={e => updateTarget(emp.id, Number(e.target.value), emp.target_actual || 0)} />
                           ) : (
-                            <button onClick={() => setEditTarget(emp.id)}
-                              className="text-amber-400 font-bold hover:underline">
-                              {emp.monthly_target || '—'}
-                            </button>
+                            <button onClick={() => setEditTarget(emp.id)} className="text-amber-400 font-bold hover:underline">{emp.monthly_target || '—'}</button>
                           )}
                         </td>
                         <td className={tdCls + ' text-gray-500'}>{emp.target_type || '—'}</td>
@@ -340,24 +309,18 @@ export default function EmployeesPage() {
                         </td>
                         <td className={tdCls}>
                           <button onClick={() => toggleActive(emp.id, emp.is_active)}
-                            className={`text-[10px] px-2 py-0.5 rounded-full border transition ${
-                              emp.is_active
-                                ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                                : 'bg-gray-500/20 text-gray-500 border-gray-500/30'}`}>
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition ${emp.is_active ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-gray-500/20 text-gray-500 border-gray-500/30'}`}>
                             {emp.is_active ? 'نشط' : 'غير نشط'}
                           </button>
                         </td>
                         <td className={tdCls}>
-                          <button onClick={() => setEditTarget(editTarget === emp.id ? null : emp.id)}
-                            className="text-gray-600 hover:text-amber-400 transition text-xs">
-                            ✏️
-                          </button>
+                          <button onClick={() => setEditTarget(editTarget === emp.id ? null : emp.id)} className="text-gray-600 hover:text-amber-400 transition text-xs">✏️</button>
                         </td>
                       </tr>
                     )
                   })}
                   {employees.length === 0 && (
-                    <tr><td colSpan={12} className="text-center py-12 text-gray-600">لا يوجد موظفين مسجلين لهذه الشركة</td></tr>
+                    <tr><td colSpan={11} className="text-center py-12 text-gray-600">لا يوجد موظفين مسجلين</td></tr>
                   )}
                 </tbody>
               </table>
@@ -366,12 +329,13 @@ export default function EmployeesPage() {
         </>
       )}
 
+      {/* ═══ الصلاحيات ═══ */}
       {tab === 'permissions' && (
         <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-white/5">
               <tr>
-                {['كود', 'الاسم', 'الدور', 'تعديل الإنتاج', 'تعديل الطلبات', 'المبيعات', 'إدارة المستخدمين', 'عرض العملاء', 'حالة الحساب', 'البريد', 'آخر دخول'].map(h => (
+                {['كود','الاسم','الدور','تعديل الإنتاج','تعديل الطلبات','المبيعات','إدارة المستخدمين','عرض العملاء','حالة الحساب','البريد','آخر دخول'].map(h => (
                   <th key={h} className={thCls}>{h}</th>
                 ))}
               </tr>
@@ -380,18 +344,16 @@ export default function EmployeesPage() {
               {employees.map((emp, i) => {
                 const code = `EMP-${String(i + 1).padStart(3, '0')}`
                 const perms = [
-                  { key: 'can_edit_production',   label: 'تعديل الإنتاج' },
-                  { key: 'can_edit_orders',        label: 'تعديل الطلبات' },
-                  { key: 'can_manage_sales',       label: 'المبيعات' },
-                  { key: 'can_manage_users',       label: 'إدارة المستخدمين' },
-                  { key: 'can_view_clients',       label: 'عرض العملاء' },
+                  { key: 'can_edit_production', label: 'تعديل الإنتاج' },
+                  { key: 'can_edit_orders',     label: 'تعديل الطلبات' },
+                  { key: 'can_manage_sales',    label: 'المبيعات' },
+                  { key: 'can_manage_users',    label: 'إدارة المستخدمين' },
+                  { key: 'can_view_clients',    label: 'عرض العملاء' },
                 ]
                 return (
                   <tr key={emp.id} className="border-b border-white/5 hover:bg-white/5 transition">
                     <td className={tdCls + ' font-mono text-amber-400 text-[10px]'}>{code}</td>
-                    <td className={tdCls}>
-                      <div className="text-white font-semibold text-xs">{emp.full_name}</div>
-                    </td>
+                    <td className={tdCls}><div className="text-white font-semibold text-xs">{emp.full_name}</div></td>
                     <td className={tdCls}>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full border ${roleColor[emp.role] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
                         {roles[emp.role] || emp.role}
@@ -413,6 +375,7 @@ export default function EmployeesPage() {
                     </td>
                     <td className={tdCls + ' text-gray-500 text-[10px]'}>{emp.email}</td>
                     <td className={tdCls + ' text-gray-600 text-[10px]'}>
+                      {/* ✅ last_login_at بدلاً من last_sign_in_at */}
                       {emp.last_login_at ? new Date(emp.last_login_at).toLocaleDateString('ar-EG') : '—'}
                     </td>
                   </tr>
@@ -423,16 +386,17 @@ export default function EmployeesPage() {
         </div>
       )}
 
+      {/* ═══ سجل التغييرات ═══ */}
       {tab === 'changelog' && (
         <div className="space-y-2">
           {logs.length === 0 ? (
-            <div className="text-center py-16 text-gray-600">لا يوجد سجل نشاط لهذه الشركة</div>
+            <div className="text-center py-16 text-gray-600">لا يوجد سجل نشاط</div>
           ) : (
             <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-white/5">
                   <tr>
-                    {['التاريخ والوقت', 'البريد الإلكتروني', 'العملية', 'الملف / الجدول', 'ملاحظات'].map(h => (
+                    {['التاريخ والوقت','البريد الإلكتروني','العملية','نوع العنصر','التفاصيل'].map(h => (
                       <th key={h} className={thCls}>{h}</th>
                     ))}
                   </tr>
@@ -440,19 +404,17 @@ export default function EmployeesPage() {
                 <tbody>
                   {logs.map(log => (
                     <tr key={log.id} className="border-b border-white/5 hover:bg-white/5 transition">
-                      <td className={tdCls + ' text-gray-500 whitespace-nowrap'}>
-                        {new Date(log.created_at).toLocaleString('ar-EG')}
-                      </td>
+                      <td className={tdCls + ' text-gray-500 whitespace-nowrap'}>{new Date(log.created_at).toLocaleString('ar-EG')}</td>
                       <td className={tdCls + ' text-gray-400'}>{log.users?.email || '—'}</td>
                       <td className={tdCls}>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                           log.action === 'create' ? 'bg-green-500/20 text-green-400' :
                           log.action === 'update' ? 'bg-blue-500/20 text-blue-400' :
-                          log.action === 'delete' ? 'bg-red-500/20 text-red-400' :
-                          'bg-gray-500/20 text-gray-400'}`}>
+                          log.action === 'delete' ? 'bg-red-500/20 text-red-400' : 'bg-gray-500/20 text-gray-400'}`}>
                           {log.action === 'create' ? 'إنشاء' : log.action === 'update' ? 'تعديل' : log.action === 'delete' ? 'حذف' : log.action}
                         </span>
                       </td>
+                      {/* ✅ entity_type و entity_label بدلاً من table_name و description */}
                       <td className={tdCls + ' font-mono text-amber-400 text-[10px]'}>{log.entity_type || '—'}</td>
                       <td className={tdCls + ' text-gray-500'}>{log.entity_label || '—'}</td>
                     </tr>
