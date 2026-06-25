@@ -1,15 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 
-// ⚠️ IMPORTANT: These environment variables MUST be set
-// See .env.example for configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables. Check .env.local and .env.example')
+  throw new Error('Missing Supabase environment variables. Check .env.local')
 }
 
-// Client-side safe: uses public anon key only
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     autoRefreshToken: true,
@@ -18,21 +15,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   },
 })
 
-// Server-side only: should NEVER be used in browser
-// Import only in server-side code (API routes, server components)
-export const getSupabaseAdmin = () => {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceRoleKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set. This should only be used server-side.')
-  }
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
-}
-
+// =============================================================================
+// 🔐 AUTH SERVICE - إدارة الهوية والمصنع
+// =============================================================================
 export const auth = {
   async signIn({ email, password }: { email: string; password: string }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -42,6 +27,7 @@ export const auth = {
   async signUp({ email, password, factoryName, ownerName }: {
     email: string; password: string; factoryName: string; ownerName: string
   }) {
+    // يتم إنشاء المصنع والمستخدم تلقائياً عبر Trigger في القاعدة (handle_new_user)
     const { data, error } = await supabase.auth.signUp({
       email, password,
       options: { data: { full_name: ownerName, factory_name: factoryName } },
@@ -55,8 +41,14 @@ export const auth = {
   async getUser() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return null
-    const { data: profile } = await supabase
-      .from('users').select('*, tenants(*)').eq('id', user.id).single()
+    // جلب بيانات المستخدم مع بيانات المصنع المرتبط به (الـ tenant)
+    const { data: profile, error } = await supabase
+      .from('users')
+      .select('*, tenants(*)')
+      .eq('id', user.id)
+      .single()
+    
+    if (error) console.error('Error fetching user profile:', error)
     return { ...user, profile }
   },
   onAuthChange(callback: any) {
@@ -64,63 +56,80 @@ export const auth = {
   },
 }
 
+// =============================================================================
+// 📦 ORDERS API - إدارة الطلبات (مطابق للملف الهندسي)
+// =============================================================================
 export const ordersApi = {
   async getAll({ status, sector, search, limit = 50, offset = 0 }: any = {}) {
     let query = supabase
       .from('orders')
-      .select('*, clients(name, phone, sector), assigned_user:users(full_name)')
+      .select('*, clients(name, phone, sector), production(progress_pct)') // جلب نسبة الإنجاز
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
+    
     if (status) query = query.eq('status', status)
     if (sector) query = query.eq('sector', sector)
     if (search) query = query.ilike('order_number', `%${search}%`)
-    const { data, error, count } = await query
-    if (error) throw error
-    return { data, count }
-  },
-  async create(orderData: any) {
-    const { data, error } = await supabase.from('orders').insert(orderData).select().single()
+    
+    const { data, error } = await query
     if (error) throw error
     return data
   },
+
+  async create(orderData: any) {
+    // 🛠️ حقن الـ tenant_id إجبارياً لضمان قبول الطلب من قبل RLS
+    const { data: me } = await supabase.from('users').select('tenant_id').single()
+    
+    const payload = {
+      ...orderData,
+      tenant_id: me?.tenant_id,
+      total_amount: orderData.total_amount || orderData.total_price, // توحيد المسميات
+      deposit_paid: orderData.deposit_paid || orderData.paid,       // توحيد المسميات
+    }
+
+    const { data, error } = await supabase.from('orders').insert(payload).select().single()
+    if (error) throw error
+    return data
+  },
+
   async update(id: string, updates: any) {
     const { data, error } = await supabase.from('orders').update(updates).eq('id', id).select().single()
     if (error) throw error
     return data
   },
-  async updateStatus(id: string, status: string) {
-    return this.update(id, { status })
-  },
+
   async delete(id: string) {
     const { error } = await supabase.from('orders').delete().eq('id', id)
     if (error) throw error
   },
 }
 
+// =============================================================================
+// ⚙️ PRODUCTION API - إدارة الإنتاج
+// =============================================================================
 export const productionApi = {
   async getAll({ status }: any = {}) {
     let query = supabase.from('production')
       .select('*, orders(order_number, quantity, expected_delivery)')
       .order('created_at', { ascending: false })
+    
     if (status) query = query.eq('final_status', status)
     const { data, error } = await query
     if (error) throw error
     return data
   },
+
   async updateStage(id: string, stage: string, value: string) {
     const { data, error } = await supabase.from('production')
       .update({ [stage]: value }).eq('id', id).select().single()
     if (error) throw error
     return data
   },
-  async updateCompleted(id: string, completedQty: number) {
-    const { data, error } = await supabase.from('production')
-      .update({ completed_qty: completedQty }).eq('id', id).select().single()
-    if (error) throw error
-    return data
-  },
 }
 
+// =============================================================================
+// 🏢 CLIENTS API - إدارة العملاء
+// =============================================================================
 export const clientsApi = {
   async getAll() {
     const { data, error } = await supabase.from('clients')
@@ -128,11 +137,20 @@ export const clientsApi = {
     if (error) throw error
     return data
   },
+
   async create(clientData: any) {
-    const { data, error } = await supabase.from('clients').insert(clientData).select().single()
+    const { data: me } = await supabase.from('users').select('tenant_id').single()
+    
+    const payload = {
+      ...clientData,
+      tenant_id: me?.tenant_id // حقن معرف المصنع
+    }
+
+    const { data, error } = await supabase.from('clients').insert(payload).select().single()
     if (error) throw error
     return data
   },
+
   async update(id: string, updates: any) {
     const { data, error } = await supabase.from('clients').update(updates).eq('id', id).select().single()
     if (error) throw error
@@ -140,15 +158,13 @@ export const clientsApi = {
   },
 }
 
+// =============================================================================
+// 📊 DASHBOARD & NOTIFICATIONS
+// =============================================================================
 export const dashboardApi = {
   async getSummary() {
+    // استدعاء الـ View التي أصلحناها (SECURITY INVOKER)
     const { data, error } = await supabase.from('dashboard_summary').select('*').single()
-    if (error) throw error
-    return data
-  },
-  async getRecentOrders(limit = 5) {
-    const { data, error } = await supabase.from('orders')
-      .select('*, clients(name)').order('created_at', { ascending: false }).limit(limit)
     if (error) throw error
     return data
   },
@@ -162,51 +178,34 @@ export const notificationsApi = {
     return data
   },
   async markRead(id: string) {
-    await supabase.from('notifications')
-      .update({ is_read: true, read_at: new Date().toISOString() }).eq('id', id)
-  },
-  subscribe(userId: string, callback: any) {
-    return supabase.channel(`notif:${userId}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public',
-        table: 'notifications', filter: `user_id=eq.${userId}`,
-      }, callback).subscribe()
+    await supabase.from('notifications').update({ is_read: true, read_at: new Date().toISOString() }).eq('id', id)
   },
 }
 
-export const subscriptionsApi = {
-  async getCurrent() {
-    const { data, error } = await supabase.from('subscriptions')
-      .select('*').order('created_at', { ascending: false }).limit(1).single()
-    if (error && error.code !== 'PGRST116') throw error
-    return data
-  },
-  async initiatePayment({ plan, billingPeriod }: { plan: string; billingPeriod: string }) {
-    const response = await fetch('/api/payments/initiate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan, billingPeriod }),
-    })
-    if (!response.ok) throw new Error('فشل في بدء عملية الدفع')
-    return response.json()
-  },
-}
-
+// =============================================================================
+// 📁 STORAGE API - إدارة الملفات (مطابق للسكيما)
+// =============================================================================
 export const storageApi = {
-  async uploadDesign(file: File, orderId: string) {
-    const ext  = file.name.split('.').pop()
-    const path = `designs/${orderId}/${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('order-files').upload(path, file)
+  async uploadAttachment(file: File, orderId: string) {
+    const ext = file.name.split('.').pop()
+    const path = `attachments/${orderId}/${Date.now()}.${ext}`
+    
+    // استخدام bucket 'order-attachments' كما في السكيما
+    const { error } = await supabase.storage.from('order-attachments').upload(path, file)
     if (error) throw error
-    const { data: { publicUrl } } = supabase.storage.from('order-files').getPublicUrl(path)
-    return publicUrl
+    
+    const { data } = supabase.storage.from('order-attachments').getPublicUrl(path)
+    return data.publicUrl
   },
+
   async uploadLogo(file: File, tenantId: string) {
-    const ext  = file.name.split('.').pop()
+    const ext = file.name.split('.').pop()
     const path = `logos/${tenantId}.${ext}`
+    
     const { error } = await supabase.storage.from('tenant-assets').upload(path, file, { upsert: true })
     if (error) throw error
-    const { data: { publicUrl } } = supabase.storage.from('tenant-assets').getPublicUrl(path)
-    return publicUrl
+    
+    const { data } = supabase.storage.from('tenant-assets').getPublicUrl(path)
+    return data.publicUrl
   },
 }
