@@ -1,106 +1,301 @@
 'use client'
-
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import {
+  Loader2, RefreshCw, Search,
+  User, PenTool, Scissors, Shirt, Printer, Package, ImageOff
+} from 'lucide-react'
 
-const roles: Record<string, string> = {
-  owner: 'مالك', admin: 'مدير', sales: 'مبيعات',
-  production: 'إنتاج', quality: 'جودة', shipping: 'شحن', accountant: 'محاسب',
+// 1. تعريف الأنواع لتطابق السكيما الهندسية v1.1
+interface ProductionOrder {
+  id: string
+  customer_name: string
+  phone?: string
+  order_date: string
+  end_date?: string
+  final_status: string
+  sales_rep: string
+  supervisor?: string
+  address?: string
+  notes?: string
+  total_amount?: number 
+  deposit_paid?: number 
+  remaining_amount?: number 
+  details?: string
+  design_url?: string
+  image_url?: string
+  stage_design: string
+  stage_cut: string
+  stage_sew: string
+  stage_print: string
+  stage_pack: string
+  updated_at: string
 }
 
-const permissions: Record<string, string[]> = {
-  owner:      ['كل الصلاحيات', 'إدارة المستخدمين', 'الإعدادات', 'التقارير المالية', 'حذف البيانات'],
-  admin:      ['إدارة المستخدمين', 'الإعدادات', 'التقارير المالية', 'عرض كل الطلبات'],
-  sales:      ['إنشاء طلبات', 'عرض العملاء', 'إنشاء فواتير', 'عرض الطلبات'],
-  production: ['عرض الطلبات', 'تحديث الإنتاج', 'تحديث مراحل التصنيع'],
-  quality:    ['عرض الطلبات', 'إضافة فحوصات الجودة', 'تحديث نتائج الجودة'],
-  shipping:   ['عرض الطلبات', 'إنشاء شحنات', 'تحديث حالة الشحن'],
-  accountant: ['عرض الفواتير', 'تحديث الفواتير', 'التقارير المالية'],
-}
+type FilterStatus = 'all' | 'جديد' | 'تحت الإنتاج' | 'فحص الجودة' | 'جاهز للشحن' | 'تم التسليم' | 'ملغى'
+type StageField = 'stage_design' | 'stage_cut' | 'stage_sew' | 'stage_print' | 'stage_pack'
 
-export default function PermissionsPage() {
-  const [users, setUsers]     = useState<any[]>([])
+const STAGES: { field: StageField; icon: ReactNode; label: string }[] = [
+  { field: 'stage_design',    icon: <PenTool size={14} />, label: 'تصميم' },
+  { field: 'stage_cut',       icon: <Scissors size={14} />, label: 'قص'    },
+  { field: 'stage_sew',       icon: <Shirt    size={14} />, label: 'خياطة' },
+  { field: 'stage_print',     icon: <Printer  size={14} />, label: 'طباعة' },
+  { field: 'stage_pack',      icon: <Package  size={14} />, label: 'تغليف' },
+]
+
+export default function ProductionBoardPage() {
+  const router = useRouter()
+  const [orders, setOrders] = useState<ProductionOrder[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving]   = useState<string | null>(null)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<FilterStatus>('all')
+  const [salesRepFilter, setSalesRepFilter] = useState('')
+  const [salesRepsList, setSalesRepsList] = useState<string[]>([])
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
-  useEffect(() => {
-    supabase.from('users').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => { setUsers(data || []); setLoading(false) })
-  }, [])
-
-  async function updateRole(id: string, role: string) {
-    setSaving(id)
-    await supabase.from('users').update({ role }).eq('id', id)
-    setUsers(u => u.map(x => x.id === id ? { ...x, role } : x))
-    setSaving(null)
+  function showMessage(type: 'success' | 'error', text: string) {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 3000)
   }
 
+  async function loadData() {
+    setLoading(true)
+    try {
+      const { data: me } = await supabase.from('users').select('tenant_id').single()
+      if (!me?.tenant_id) throw new Error('لم يتم العثور على صلاحيات المصنع')
+
+      const { data, error } = await supabase
+        .from('production')
+        .select(`
+          *,
+          supervisor:users!supervisor_id ( full_name ),
+          orders (
+            order_number, order_date, expected_delivery,
+            total_amount, deposit_paid, remaining_amount,
+            notes, details, design_url,
+            clients (name, phone, address)
+          )
+        `)
+        .eq('tenant_id', me.tenant_id)
+        .order('updated_at', { ascending: false })
+
+      if (error) throw error
+
+      const mapped: ProductionOrder[] = (data || []).map((p: any) => ({
+        id:               p.id,
+        customer_name:    p.orders?.clients?.name  || '—',
+        phone:            p.orders?.clients?.phone,
+        order_date:       p.orders?.order_date      || '',
+        end_date:         p.orders?.expected_delivery,
+        final_status:     p.final_status            || 'بانتظار التنفيذ',
+        sales_rep:        p.supervisor?.full_name || '—',
+        supervisor:       p.supervisor?.full_//name,
+        address:          p.orders?.clients?.address,
+        notes:            p.orders?.notes,
+        total_amount:      p.orders?.total_amount,
+        deposit_paid:      p.orders?.deposit_paid,
+        remaining_amount:  p.orders?.remaining_amount,
+        details:          p.orders?.details         || p.details,
+        design_link:      p.orders?.design_url,
+        image_url:        p.orders?.design_url,
+        stage_design:    p.stage_design    || 'pending',
+        stage_cut:       p.stage_cut       || 'pending',
+        stage_sew:       p.stage_sew       || 'pending',
+        stage_print:     p.stage_print     || 'pending',
+        stage_pack:      p.stage_pack      || 'pending',
+        updated_at:       p.updated_at,
+      }))
+
+      setOrders(mapped)
+      const reps = Array.from(new Set(mapped.map(o => o.sales_rep).filter(Boolean))) as string[]
+      setSalesRepsList(reps.sort())
+    } catch (err: any) {
+      showMessage('error', 'خطأ في تحميل البيانات: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { loadData() }, [])
+
+  async function handleToggleStage(orderId: string, field: StageField, currentVal: string) {
+    const nextVal = currentVal === 'done' ? 'pending' : 'done'
+    setUpdatingId(orderId)
+    try {
+      const { error } = await supabase
+        .from('production')
+        .update({ [field]: nextVal, updated_at: new Date().toISOString() })
+        .eq('id', orderId)
+      if (error) throw error
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, [field]: nextVal } : o))
+      showMessage('success', 'تم تحديث المرحلة بنجاح')
+      loadData() // تحديث الحالة النهائية من التريجر
+    } catch (err: any) {
+      showMessage('error', 'فشل التحديث: ' + err.message)
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
+  function getFinalBadgeClass(status: string): string {
+    switch (status) {
+      case 'تم التسليم':    return 'bg-green-500/15 text-green-400 border-green-500/30'
+      case 'جاهز للشحن':     return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+      case 'قيد التنفيذ':    return 'bg-orange-500/15 text-orange-400 border-orange-500/30'
+      case 'ملغى':           return 'bg-red-500/15 text-red-400 border-red-500/30'
+      default:               return 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+    }
+  }
+
+  function getStageClass(status: string): string {
+    if (status === 'done') return 'bg-green-500/10 border-green-500/40 text-green-400 font-bold'
+    if (status === 'in_progress') return 'bg-amber-500/10 border-amber-500/40 text-amber-400'
+    return 'bg-white/5 border-white/10 text-gray-400 hover:border-amber-500/30 hover:text-amber-400'
+  }
+
+  const filtered = orders.filter(o => {
+    if (o.final_status === 'تم التسليم' && !search && statusFilter === 'all') return false
+    const term = search.toLowerCase()
+    const matchSearch = !search || o.customer_name.toLowerCase().includes(term) || (o.phone?.includes(search) ?? false)
+    const matchStatus = statusFilter === 'all' || o.final_status === statusFilter
+    const matchRep    = !salesRepFilter || o.sales_rep === salesRepFilter
+    return matchSearch && matchStatus && matchRep
+  })
+
   return (
-    <div className="p-6 min-h-screen" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
-      <div className="mb-6">
-        <h1 className="text-2xl font-black text-white">🔑 الصلاحيات</h1>
-        <p className="text-sm text-gray-500 mt-1">إدارة أدوار المستخدمين</p>
+    <div className="space-y-5 p-4" dir="rtl">
+      {message && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl text-sm font-bold border ${
+          message.type === 'success' ? 'bg-green-500/15 text-green-400 border-green-500/30' : 'bg-red-500/15 text-red-400 border-red-500/30'
+        }`}>
+          {message.type === 'success' ? '✅ ' : '❌ '}{message.text}
+        </div>
+      )}
+
+      {previewImage && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setPreviewImage(null)}>
+          <img src={previewImage} alt="preview" className="max-w-full max-h-full rounded-2xl border border-white/10" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-xl font-black flex items-center gap-2 text-white">👷 شاشة تشغيل ومتابعة الإنتاج</h1>
+          <p className="text-gray-500 text-sm">تحديث لحظي لمراحل التنفيذ داخل المصنع</p>
+        </div>
+        <button onClick={loadData} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-white/10 text-gray-300 hover:bg-white/5 transition disabled:opacity-50">
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} تحديث
+        </button>
       </div>
 
-      {/* Roles Reference */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        {Object.entries(permissions).map(([role, perms]) => (
-          <div key={role} className="bg-[#111927] rounded-2xl border border-white/5 p-4">
-            <h3 className="font-bold text-amber-400 text-sm mb-3">{roles[role]}</h3>
-            <ul className="space-y-1">
-              {perms.map(p => (
-                <li key={p} className="text-xs text-gray-400 flex items-center gap-2">
-                  <span className="text-green-500 text-[10px]">✓</span> {p}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-[#111927] border border-white/5 p-4 rounded-2xl">
+        <div className="md:col-span-5 flex items-center gap-2 bg-[#0D1B2A] border border-white/10 rounded-xl px-3 py-2 focus-within:border-amber-500/50 transition-colors">
+          <Search size={16} className="text-gray-500" />
+          <input type="text" placeholder="ابحث باسم العميل أو الجوال..." className="bg-transparent outline-none text-sm w-full text-white placeholder:text-white/30" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div className="md:col-span-3">
+          <select className="w-full bg-[#0D1B2A] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50" value={statusFilter} onChange={e => setStatusFilter(e.target.value as FilterStatus)}>
+            <option value="all">كل الحالات</option>
+            <option value="جديد">جديد</option>
+            <option value="تحت الإنتاج">تحت الإنتاج</option>
+            <option value="فحص الجودة">فحص الجودة</option>
+            <option value="جاهز للشحن">جاهز للشحن</option>
+            <option value="تم التسليم">تم التسليم</option>
+            <option value="ملغى">ملغى</option>
+          </select>
+        </div>
+        <div className="md:col-span-4">
+          <select className="w-full bg-[#0D1B2A] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50" value={salesRepFilter} onChange={e => setSalesRepFilter(e.target.value)}>
+            <option value="">كل موظفي المبيعات</option>
+            {salesRepsList.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
       </div>
 
-      {/* Users Roles */}
-      <h2 className="text-sm font-bold text-gray-400 mb-4">تعيين الأدوار للمستخدمين</h2>
       {loading ? (
-        <div className="text-center py-8 text-gray-600">جاري التحميل...</div>
+        <div className="bg-[#111927] border border-white/5 rounded-2xl p-16 text-center text-gray-500">
+          <Loader2 size={32} className="animate-spin mx-auto mb-3 text-amber-500" />
+          <p className="text-sm">جاري مزامنة خطوط الإنتاج...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-[#111927] border border-white/5 rounded-2xl p-16 text-center text-gray-500">
+          <div className="text-4xl mb-3">📦</div>
+          <p className="text-sm">لا توجد طلبيات نشطة حالياً</p>
+        </div>
       ) : (
-        <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-white/5">
-              <tr>
-                {['المستخدم', 'البريد', 'الدور الحالي', 'تغيير الدور'].map(h => (
-                  <th key={h} className="text-right text-xs text-gray-600 font-medium px-5 py-3">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id} className="border-b border-white/5 hover:bg-white/5 transition">
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">
-                        {u.full_name?.[0] || '?'}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+          {filtered.map(order => (
+            <div key={order.id} className={`bg-[#111927] border rounded-2xl p-4 flex flex-col justify-between transition-all hover:border-white/10 ${order.final_status === 'قيد التنفيذ' ? 'border-orange-500/20' : 'border-white/5'}`}>
+              <div className="space-y-3">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="flex items-start gap-2.5">
+                    {order.image_url ? (
+                      <button onClick={() => setPreviewImage(order.image_url!)} className="shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-white/10 hover:border-amber-500/50 transition">
+                        <img src={order.image_url} alt="design" className="w-full h-full object-cover" />
+                      </button>
+                    ) : (
+                      <div className="shrink-0 w-12 h-12 rounded-lg border border-white/10 bg-white/5 flex items-center justify-center text-gray-600">
+                        <ImageOff size={16} />
                       </div>
-                      <span className="text-xs text-white">{u.full_name}</span>
+                    )}
+                    <div className="flex flex-col gap-1">
+                      <div className="font-bold text-sm flex items-center gap-1.5">
+                        <span className="font-mono bg-white/5 border border-white/10 text-amber-400 px-2 py-0.5 rounded-md text-xs">{order.id.slice(0, 8)}</span>
+                        {order.design_link && <a href={order.design_link} target="_blank" rel="noreferrer" className="text-cyan-400 text-xs hover:underline">🖼️ باترون</a>}
+                      </div>
+                      <div className="text-xs font-bold flex items-center gap-1 text-white">
+                        <User size={12} className="text-gray-500" /> {order.customer_name}
+                      </div>
                     </div>
-                  </td>
-                  <td className="px-5 py-3 text-xs text-gray-500">{u.email}</td>
-                  <td className="px-5 py-3">
-                    <span className="text-xs text-amber-400 font-bold">{roles[u.role] || u.role}</span>
-                  </td>
-                  <td className="px-5 py-3">
-                    <select value={u.role} disabled={saving === u.id}
-                      onChange={e => updateRole(u.id, e.target.value)}
-                      className="bg-[#0D1B2A] border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500/50">
-                      {Object.entries(roles).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
-                  </td>
-                </tr>
-              ))}
-              {users.length === 0 && (
-                <tr><td colSpan={4} className="text-center py-8 text-gray-600 text-sm">لا يوجد مستخدمين</td></tr>
-              )}
-            </tbody>
-          </table>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${getFinalBadgeClass(order.final_status)}`}>{order.final_status}</span>
+                    <span className="text-xs text-gray-500 font-mono">🗓️ {order.order_//date}</span>
+                  </div>
+                </div>
+
+                <div className="h-px bg-white/5" />
+                <div className="space-y-1.5 text-xs text-gray-500">
+                  <div className="flex justify-between">
+                    <span>👔 المسؤول:</span>
+                    <span className="text-white font-medium">{order.supervisor || order.sales_rep || '—'}</span>
+                  </div>
+                  {order.notes && <div className="bg-amber-500/5 border border-amber-500/15 p-2 rounded-lg text-xs text-amber-400/90">📝 {order.notes}</div>}
+                  <div className="bg-white/5 p-2 rounded-md text-xs font-mono flex justify-between border border-white/5">
+                    <span>إجمالي: <span className="text-cyan-400 font-bold">{order.total_amount?.toLocaleString() || 0} ج.م</span></span>
+                    <span>متبقي: <span className="text-red-400 font-bold">{order.remaining_amount?.toLocaleString() || 0} ج.م</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="h-px bg-white/5 mb-3" />
+                <div className="text-xs text-gray-500 mb-2 font-bold flex items-center justify-between">
+                  <span className="flex items-center gap-1">🛠️ مراحل التنفيذ:</span>
+                  {order.final_status === 'جاهز للشحن' && <span className="text-cyan-400 animate-pulse">🚚 جاهز للشحن</span>}
+                </div>
+                <div className="grid grid-cols-5 gap-1">
+                  {STAGES.map(stage => {
+                    const val = order[stage.field]
+                    return (
+                      <button
+                        key={stage.field}
+                        disabled={updatingId === order.id}
+                        onClick={() => handleToggleStage(order.id, stage.field, val)}
+                        className={`border rounded-lg px-1 py-2 text-center text-[10px] transition-all flex flex-col items-center justify-center gap-1 ${getStageClass(val)} ${updatingId === order.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {updatingId === order.id ? <Loader2 size={12} className="animate-spin" /> : (val === 'done' ? <span className="text-sm">✅</span> : stage.icon)}
+                        <span className="leading-tight">{stage.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
