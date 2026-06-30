@@ -59,12 +59,15 @@ export default function SettingsPage() {
   async function loadData() {
     setPageLoading(true)
     try {
-      const { data: userData } = await supabase.from('users').select('tenant_id').single()
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) throw new Error("No authenticated user")
+
+      const { data: userData } = await supabase.from('users').select('tenant_id').eq('id', authUser.id).single()
       if (!userData?.tenant_id) throw new Error("No tenant ID found")
 
       const tid = userData.tenant_id
       const { data: tenantData } = await supabase.from('tenants').select('*').eq('id', tid).single()
-      if (//tenantData) setTenant(tenantData)
+      if (tenantData) setTenant(tenantData)
 
       const { data: usersData } = await supabase.from('users').select('*').eq('tenant_id', tid)
       if (usersData) setUsers(usersData)
@@ -100,7 +103,7 @@ export default function SettingsPage() {
 
   async function toggleUserActive(userId: string, current: boolean) {
     const { error } = await supabase.from('users').update({ is_active: !current }).eq('id', userId)
-    if (!error) setUsers(u => u.map(x => x.id === userId ? { ...x, is_//active: !current } : x))
+    if (!error) setUsers(u => u.map(x => x.id === userId ? { ...x, is_active: !current } : x))
   }
 
   async function changeUserRole(userId: string, role: string) {
@@ -134,7 +137,7 @@ export default function SettingsPage() {
               <div><label className="block text-xs text-gray-500 mb-1">اسم المصنع</label><input value={tenant.name || ''} onChange={e => setTenant(t => ({ ...t, name: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">رقم الهاتف</label><input value={tenant.phone || ''} onChange={e => setTenant(t => ({ ...t, phone: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">المدينة</label><input value={tenant.city || ''} onChange={e => setTenant(t => ({ ...t, city: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" /></div>
-              <div><label className="block text-xs text-gray-500 mb-1">العنوان</label><input value={tenant.address || ''} onChange={e => setTenant(t => ({ ...t, address: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-//none focus:border-amber-500/50" /></div>
+              <div><label className="block text-xs text-gray-500 mb-1">العنوان</label><input value={tenant.address || ''} onChange={e => setTenant(t => ({ ...t, address: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">بادئة رقم الطلب</label><input value={tenant.order_prefix || ''} onChange={e => setTenant(t => ({ ...t, order_prefix: e.target.value }))} placeholder="مثال: A" className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">العملة</label><select value={tenant.currency || 'EGP'} onChange={e => setTenant(t => ({ ...t, currency: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50"><option value="EGP">جنيه مصري (EGP)</option><option value="USD">دولار (USD)</option><option value="SAR">ريال سعودي (SAR)</option><option value="AED">درهم إماراتي (AED)</option></select></div>
             </div>
@@ -186,7 +189,7 @@ export default function SettingsPage() {
               <div className="flex flex-wrap gap-2">{orderStatuses.map(s => (<span key={s} className="px-3 py-1.5 bg-[#0D1B2A] border border-white/10 rounded-lg text-sm text-white">{s}</span>))}</div>
             </div>
             <div className="bg-[#111927] rounded-2xl border border-white/5 p-6">
-              <h2 className, "text-sm font-bold text-amber-400 mb-4">👔 أدوار المستخدمين</h2>
+              <h2 className="text-sm font-bold text-amber-400 mb-4">👔 أدوار المستخدمين</h2>
               <div className="flex flex-wrap gap-2">{Object.values(ROLES).map(r => (<span key={r} className="px-3 py-1.5 bg-[#0D1B2A] border border-white/10 rounded-lg text-sm text-white">{r}</span>))}</div>
             </div>
           </div>
