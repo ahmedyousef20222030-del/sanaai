@@ -2,12 +2,12 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
-type Employee = { 
-  id: string; 
-  name: string; 
-  phone: string; 
-  role: string; 
-  salary: number;
+type Employee = {
+  id: string
+  name: string
+  phone: string
+  role: string
+  salary: number
 }
 
 const roles: Record<string, string> = {
@@ -38,7 +38,7 @@ export default function EmployeesPage() {
         .from('employees')
         .select('*')
         .order('name', { ascending: true })
-      
+
       if (error) throw error
       setEmployees(data || [])
     } catch (err: any) {
@@ -48,36 +48,53 @@ export default function EmployeesPage() {
     }
   }
 
+  async function getMyTenantId(): Promise<string> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      throw new Error('تعذر التحقق من هوية المستخدم، برجاء تسجيل الدخول مرة أخرى')
+    }
+
+    const { data: me, error: meError } = await supabase
+      .from('users')
+      .select('tenant_id')
+      .eq('id', user.id)
+      .single()
+
+    if (meError) {
+      throw new Error(`تعذر تحديد هوية الشركة: ${meError.message}`)
+    }
+    if (!me?.tenant_id) {
+      throw new Error('تعذر تحديد هوية الشركة: لا يوجد tenant_id مرتبط بهذا المستخدم')
+    }
+
+    return me.tenant_id
+  }
+
   async function handleAdd() {
-    if (!form.name) { 
+    if (!form.name) {
       alert('الاسم مطلوب')
-      return 
+      return
     }
     setSaving(true)
     try {
-      const { data: me, error: meError } = await supabase
-        .from('users')
-        .select('tenant_id')
-        .single()
-      
-      if (meError) throw meError
+      const tenantId = await getMyTenantId()
 
       const { error } = await supabase
         .from('employees')
-        .insert({ 
-          ...form, 
-          tenant_id: me?.tenant_id 
+        .insert({
+          ...form,
+          tenant_id: tenantId,
         })
 
       if (error) throw error
-      
+
       setShowForm(false)
       setForm({ name: '', phone: '', role: 'production', salary: 0 })
       load()
-    } catch (err: any) { 
-      alert('خطأ أثناء الحفظ: ' + err.message) 
-    } finally { 
-      setSaving(false) 
+    } catch (err: any) {
+      alert('خطأ أثناء الحفظ: ' + err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -88,8 +105,8 @@ export default function EmployeesPage() {
           <h1 className="text-2xl font-black text-white">👥 إدارة الموظفين</h1>
           <p className="text-sm text-gray-500 mt-1">قائمة وبيانات موظفي المصنع والورشة</p>
         </div>
-        <button 
-          onClick={() => setShowForm(true)} 
+        <button
+          onClick={() => setShowForm(true)}
           className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20"
         >
           ➕ موظف جديد
@@ -97,39 +114,39 @@ export default function EmployeesPage() {
       </div>
 
       {showForm && (
-        <div 
-          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm" 
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
           onClick={() => setShowForm(false)}
         >
-          <div 
-            className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl" 
+          <div
+            className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             <h2 className="text-lg font-bold text-amber-400 mb-4">➕ إضافة موظف جديد</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label className="block text-xs text-gray-500 mb-1">اسم الموظف *</label>
-                <input 
+                <input
                   type="text"
-                  value={form.name} 
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))} 
-                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" 
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
                 />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">الهاتف</label>
-                <input 
+                <input
                   type="text"
-                  value={form.phone} 
-                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} 
-                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" 
+                  value={form.phone}
+                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
                 />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">الدور / الوظيفة</label>
-                <select 
-                  value={form.role} 
-                  onChange={e => setForm(f => ({ ...f, role: e.target.value }))} 
+                <select
+                  value={form.role}
+                  onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                   className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
                 >
                   {Object.entries(roles).map(([key, label]) => (
@@ -141,25 +158,25 @@ export default function EmployeesPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs text-gray-500 mb-1">الراتب الشهري</label>
-                <input 
-                  type="number" 
-                  value={form.salary} 
-                  onChange={e => setForm(f => ({ ...f, salary: Number(e.target.value) }))} 
-                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" 
+                <input
+                  type="number"
+                  value={form.salary}
+                  onChange={e => setForm(f => ({ ...f, salary: Number(e.target.value) }))}
+                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
                 />
               </div>
             </div>
-            
+
             <div className="flex gap-3 mt-6">
-              <button 
-                onClick={handleAdd} 
-                disabled={saving} 
+              <button
+                onClick={handleAdd}
+                disabled={saving}
                 className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
               >
                 {saving ? 'جاري الحفظ...' : '✅ حفظ الموظف'}
               </button>
-              <button 
-                onClick={() => setShowForm(false)} 
+              <button
+                onClick={() => setShowForm(false)}
                 className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition"
               >
                 إلغاء
@@ -183,6 +200,11 @@ export default function EmployeesPage() {
               </div>
             </div>
           ))}
+          {employees.length === 0 && (
+            <div className="col-span-full text-center py-16 text-gray-600 text-sm">
+              لا يوجد موظفون مسجلون بعد
+            </div>
+          )}
         </div>
       )}
     </div>

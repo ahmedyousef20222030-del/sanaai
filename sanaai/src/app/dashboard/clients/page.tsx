@@ -34,28 +34,66 @@ export default function ClientsPage() {
 
   async function fetchClients() {
     setLoading(true)
-    const { data, error } = await supabase.from('clients').select('*').order('total_spent', { ascending: false })
-    if (!error) setClients(data || [])
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*')
+      .order('total_spent', { ascending: false })
+
+    if (error) {
+      console.error('Error loading clients:', error.message)
+      setClients([])
+    } else {
+      setClients(data || [])
+    }
     setLoading(false)
   }
 
-  const filtered = clients.filter(c => 
+  const filtered = clients.filter(c =>
     !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search)
   )
 
+  async function getMyTenantId(): Promise<string> {
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      throw new Error('تعذر التحقق من هوية المستخدم، برجاء تسجيل الدخول مرة أخرى')
+    }
+
+    const { data: me, error: meError } = await supabase
+      .from('users')
+      .select('tenant_id')
+      .eq('id', user.id)
+      .single()
+
+    if (meError) {
+      throw new Error(`تعذر تحديد هوية المصنع: ${meError.message}`)
+    }
+    if (!me?.tenant_id) {
+      throw new Error('تعذر تحديد هوية المصنع: لا يوجد tenant_id مرتبط بهذا المستخدم')
+    }
+
+    return me.tenant_id
+  }
+
   async function handleAdd() {
-    if (!form.name || !form.phone) { alert('الاسم والهاتف مطلوبان'); return }
+    if (!form.name || !form.phone) {
+      alert('الاسم والهاتف مطلوبان')
+      return
+    }
     setSaving(true)
     try {
-      const { data: me } = await supabase.from('users').select('tenant_id').single()
-      if (!me) throw new Error('تعذر تحديد هوية المصنع')
+      const tenantId = await getMyTenantId()
 
-      const { data, error: insertError } = await supabase.from('clients').insert({ 
-        ...form, 
-        tenant_id: me.tenant_id 
-      }).select().single()
+      const { data, error: insertError } = await supabase
+        .from('clients')
+        .insert({
+          ...form,
+          tenant_id: tenantId,
+        })
+        .select()
+        .single()
 
       if (insertError) throw insertError
+
       setClients(c => [data, ...c])
       setShowForm(false)
       setForm({ name: '', phone: '', sector: 'مدارس', city: '' })
@@ -102,7 +140,7 @@ export default function ClientsPage() {
             </div>
           </div>
           <div className="flex gap-3 mt-6">
-            <button onClick={handleAdd} disabled={saving} className="px-6 py-2 bg-amber-500 text-black font-bold rounded-lg text-sm hover:bg-amber-400 transition">{saving ? 'جاري الحفظ...' : 'حفظ البيانات'}</button>
+            <button onClick={handleAdd} disabled={saving} className="px-6 py-2 bg-amber-500 text-black font-bold rounded-lg text-sm hover:bg-amber-400 transition disabled:opacity-50">{saving ? 'جاري الحفظ...' : 'حفظ البيانات'}</button>
             <button onClick={() => setShowForm(false)} className="px-6 py-2 border border-white/10 text-gray-400 rounded-lg text-sm hover:bg-white/5 transition">إلغاء</button>
           </div>
         </div>
@@ -139,6 +177,11 @@ export default function ClientsPage() {
               </div>
             </div>
           ))}
+          {filtered.length === 0 && (
+            <div className="col-span-full text-center py-16 text-gray-600 text-sm">
+              لا يوجد عملاء يطابقون بحثك
+            </div>
+          )}
         </div>
       )}
     </div>
