@@ -19,7 +19,7 @@ const sectorColor: Record<string, string> = {
   'شركات كوربوريت':     'bg-purple-500/20 text-purple-300 border-purple-500/30',
   'حكومي':              'bg-green-500/20 text-green-300 border-green-500/30',
   'أفراد':              'bg-pink-500/20 text-pink-300 border-pink-500/30',
-  'أخرى':              'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  'أخرى':               'bg-gray-500/20 text-gray-400 border-gray-500/30',
 }
 
 export default function ClientsPage() {
@@ -44,7 +44,7 @@ export default function ClientsPage() {
   )
 
   async function handleAdd() {
-    if (!form.name || !//form.phone) { alert('الاسم والهاتف مطلوبان'); return }
+    if (!form.name || !form.phone) { alert('الاسم والهاتف مطلوبان'); return }
     setSaving(true)
     try {
       const { data: me } = await supabase.from('users').select('tenant_id').single()
@@ -88,17 +88,17 @@ export default function ClientsPage() {
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-gray-500">رقم الهاتف *</label>
-              <input value={//form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
+              <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-gray-500">القطاع</label>
-              <select value={form.sector} onChange={e => setForm(f => ({ ...f, sector: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-//amber-500/50 outline-none">
+              <select value={form.sector} onChange={e => setForm(f => ({ ...f, sector: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none">
                 {['مدارس', 'مطاعم وفنادق', 'شركات كوربوريت', 'حكومي', 'أفراد', 'أخرى'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-gray-500">المدينة</label>
-              <input value={//form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
+              <input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
             </div>
           </div>
           <div className="flex gap-3 mt-6">
