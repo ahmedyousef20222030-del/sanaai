@@ -168,7 +168,7 @@ export default function NewOrderPage() {
           details: form.notes,
           sector: effectiveSector,
           status: 'جديد',
-          delivery_status: 'في المخزون',
+          delivery_status: 'في الموعد',
         })
         .select().single()
 
