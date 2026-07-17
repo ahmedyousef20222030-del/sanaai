@@ -2,8 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import InvoicePDF from '@/components/InvoicePDF'
-import { Loader2, FileText, Download, CreditCard } from 'lucide-react'
-
+import { Loader2, FileText, CheckCircle2, CreditCard } from 'lucide-react'
 type Invoice = {
   id: string
   invoice_number: string
