@@ -126,8 +126,17 @@ export default function NewOrderPage() {
     setLoading(true)
 
     try {
-      const { data: me } = await supabase.from('users').select('tenant_id, full_name').single()
-      if (!me) throw new Error('تعذر تحديد هوية المستخدم')
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) throw new Error('يجب تسجيل الدخول أولاً')
+
+      const { data: me, error: meError } = await supabase
+        .from('users')
+        .select('tenant_id, full_name')
+        .eq('id', authUser.id)
+        .single()
+
+      if (meError) throw new Error('تعذر تحديد هوية المستخدم: ' + meError.message)
+      if (!me?.tenant_id) throw new Error('تعذر تحديد بيانات المنشأة الخاصة بالمستخدم')
 
       let clientId = form.client_id
       if (clientMode === 'new') {
