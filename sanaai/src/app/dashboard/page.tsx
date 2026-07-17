@@ -16,9 +16,9 @@ type Order = {
   order_number: string
   status: string
   delivery_status: string
-  total_price: number 
-  deposit_paid: number 
-  remaining: number 
+  total_amount: number
+  deposit_paid: number
+  remaining_amount: number
   expected_delivery: string
   clients: { name: string }
 }
@@ -129,9 +129,9 @@ export default function DashboardPage() {
 
       const total = ordersData?.length || 0
       const active = ordersData?.filter(x => !['تم التسليم', 'مغلق'].includes(x.status)).length || 0
-      const revenue = ordersData?.reduce((s: number, x: Order) => s + (x.total_price || 0), 0) || 0
+      const revenue = ordersData?.reduce((s: number, x: Order) => s + (x.total_amount || 0), 0) || 0
       const collected = ordersData?.reduce((s: number, x: Order) => s + (x.deposit_paid || 0), 0) || 0
-      const remaining = ordersData?.reduce((s: number, x: Order) => s + (x.remaining || 0), 0) || 0
+      const remaining = ordersData?.reduce((s: number, x: Order) => s + (x.remaining_amount || 0), 0) || 0
       const delayed = ordersData?.filter(x => x.delivery_status === 'متأخر').length || 0
       const delivered = ordersData?.filter(x => x.status === 'تم التسليم').length || 0
       const completionRate = total > 0 ? Math.round((delivered / total) * 100) : 0
@@ -147,8 +147,8 @@ export default function DashboardPage() {
       }).reverse();
 
       const revenues = await Promise.all(last7Days.map(async date => {
-        const { data } = await supabase.from('orders').select('total_price').eq('order_date', date)
-        return (data || []).reduce((s, x) => s + (x.total_price || 0), 0)
+        const { data } = await supabase.from('orders').select('total_amount').eq('order_date', date)
+        return (data || []).reduce((s, x) => s + (x.total_amount || 0), 0)
       }))
       setWeekRevenue(revenues)
 
@@ -273,7 +273,7 @@ export default function DashboardPage() {
                       <td className="px-3 py-3">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor(o.status)}`}>{o.status}</span>
                       </td>
-                      <td className="px-3 py-3 text-amber-400 font-bold text-xs">{fmt(o.total_price)}</td>
+                      <td className="px-3 py-3 text-amber-400 font-bold text-xs">{fmt(o.total_amount)}</td>
                       <td className="px-3 py-3 text-gray-500 text-[10px]">{o.expected_delivery ? new Date(o.expected_delivery).toLocaleDateString('ar-EG') : '—'}</td>
                     </tr>
                   ))}
