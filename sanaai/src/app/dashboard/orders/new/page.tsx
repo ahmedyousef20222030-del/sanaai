@@ -164,7 +164,6 @@ export default function NewOrderPage() {
           quantity: items.length > 0 ? items.reduce((s, x) => s + x.qty, 0) : Number(form.quantity),
           total_amount: total,
           deposit_paid: Number(form.deposit_amount) || 0,
-          remaining_amount: remaining,
           expected_delivery: form.expected_delivery,
           details: form.notes,
           sector: effectiveSector,
