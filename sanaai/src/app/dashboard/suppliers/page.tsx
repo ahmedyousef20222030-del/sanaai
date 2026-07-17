@@ -21,14 +21,41 @@ export default function SuppliersPage() {
   }
 
   async function handleAdd() {
-    if (!form.name) { alert('الاسم مطلوب'); return }
+    if (!form.name.trim()) { alert('الاسم مطلوب'); return }
     setSaving(true)
     try {
-      const { data: me } = await supabase.from('users').select('tenant_id').single()
-      const { error } = await supabase.from('suppliers').insert({ ...form, tenant_id: me?.tenant_id })
+      // نتأكد إن المستخدم مسجل دخول فعلاً
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) throw new Error('يجب تسجيل الدخول أولاً')
+
+      // ندور على بيانات المستخدم بالـ id بتاعه بالضبط (بدل الاعتماد الأعمى على RLS)
+      const { data: me, error: meError } = await supabase
+        .from('users')
+        .select('tenant_id')
+        .eq('id', authUser.id)
+        .single()
+
+      if (meError) throw new Error('تعذر تحديد هوية المستخدم: ' + meError.message)
+      if (!me?.tenant_id) throw new Error('تعذر تحديد بيانات المنشأة الخاصة بالمستخدم')
+
+      const { error } = await supabase.from('suppliers').insert({
+        name: form.name.trim(),
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+        address: form.address.trim() || null,
+        category: form.category,
+        tenant_id: me.tenant_id,
+      })
       if (error) throw error
-      setShowForm(false); setForm({ name: '', phone: '', email: '', address: '', category: 'أقمشة' }); load()
-    } catch (err: any) { alert('خطأ: ' + err.message) } finally { setSaving(false) }
+
+      setShowForm(false)
+      setForm({ name: '', phone: '', email: '', address: '', category: 'أقمشة' })
+      load()
+    } catch (err: any) {
+      alert('خطأ: ' + err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
