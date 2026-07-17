@@ -154,39 +154,24 @@ export default function NewOrderPage() {
       }
 
       // 1. إنشاء الطلب
-      // ملاحظة: نجرب اسم عمود المبلغ الإجمالي total_price أولاً، ولو الجدول
-      // في Supabase فيه العمود باسم total_amount بدل كده، نعيد المحاولة تلقائياً
-      const baseOrderPayload: Record<string, any> = {
-        tenant_id: me.tenant_id,
-        client_id: clientId,
-        quantity: items.length > 0 ? items.reduce((s, x) => s + x.qty, 0) : Number(form.quantity),
-        deposit_paid: Number(form.deposit_amount) || 0,
-        expected_delivery: form.expected_delivery,
-        notes: form.notes,
-        sector: effectiveSector,
-        status: 'جديد',
-        delivery_status: 'في المخزون',
-      }
-
-      let order: any = null
-      let orderError: any = null
-
-      // المحاولة الأولى: total_price
-      ;({ data: order, error: orderError } = await supabase
+      // ملاحظة: أسماء الأعمدة دي متطابقة مع جدول orders الفعلي في Supabase
+      // (تم التأكد منها عبر information_schema.columns بتاريخ اليوم)
+      const { data: order, error: orderError } = await supabase
         .from('orders')
-        .insert({ ...baseOrderPayload, total_price: total })
-        .select().single())
-
-      // لو فشلت المحاولة بسبب عدم وجود عمود total_price، نجرب total_amount
-      const isMissingColumn = (msg?: string) =>
-        !!msg && /column/i.test(msg) && /schema/i.test(msg)
-
-      if (orderError && isMissingColumn(orderError.message) && /total_price/i.test(orderError.message)) {
-        ;({ data: order, error: orderError } = await supabase
-          .from('orders')
-          .insert({ ...baseOrderPayload, total_amount: total })
-          .select().single())
-      }
+        .insert({
+          tenant_id: me.tenant_id,
+          client_id: clientId,
+          quantity: items.length > 0 ? items.reduce((s, x) => s + x.qty, 0) : Number(form.quantity),
+          total_amount: total,
+          deposit_paid: Number(form.deposit_amount) || 0,
+          remaining_amount: remaining,
+          expected_delivery: form.expected_delivery,
+          details: form.notes,
+          sector: effectiveSector,
+          status: 'جديد',
+          delivery_status: 'في المخزون',
+        })
+        .select().single()
 
       if (orderError) throw orderError
 
