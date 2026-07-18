@@ -15,6 +15,32 @@ const roles: Record<string, string> = {
   employee: 'موظف',
 }
 
+// ── الصلاحيات الدقيقة المتاحة (أعمدة boolean في جدول users) ──
+type PermissionKey = 'can_edit_production' | 'can_edit_orders' | 'can_manage_sales' | 'can_manage_users' | 'can_view_clients'
+
+const PERMISSION_LABELS: Record<PermissionKey, string> = {
+  can_edit_production: '✏️ تعديل الإنتاج',
+  can_edit_orders: '📋 تعديل الطلبات',
+  can_manage_sales: '💰 إدارة المبيعات',
+  can_manage_users: '👤 إدارة المستخدمين',
+  can_view_clients: '👁️ عرض العملاء',
+}
+
+const PERMISSION_KEYS: PermissionKey[] = ['can_edit_production', 'can_edit_orders', 'can_manage_sales', 'can_manage_users', 'can_view_clients']
+
+// ── الصلاحيات الافتراضية المقترحة لكل دور (نقطة بداية فقط، قابلة للتعديل يدوياً بعد كده) ──
+const ROLE_DEFAULT_PERMISSIONS: Record<string, Record<PermissionKey, boolean>> = {
+  owner:      { can_edit_production: true,  can_edit_orders: true,  can_manage_sales: true,  can_manage_users: true,  can_view_clients: true  },
+  admin:      { can_edit_production: true,  can_edit_orders: true,  can_manage_sales: true,  can_manage_users: true,  can_view_clients: true  },
+  sales:      { can_edit_production: false, can_edit_orders: true,  can_manage_sales: true,  can_manage_users: false, can_view_clients: true  },
+  production: { can_edit_production: true,  can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+  design:     { can_edit_production: true,  can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+  shipping:   { can_edit_production: false, can_edit_orders: true,  can_manage_sales: false, can_manage_users: false, can_view_clients: true  },
+  hr:         { can_edit_production: false, can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+  accountant: { can_edit_production: false, can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: true  },
+  employee:   { can_edit_production: false, can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+}
+
 type Employee = {
   id: string
   name: string
@@ -28,6 +54,11 @@ type AppUser = {
   full_name: string
   email: string
   role: string
+  can_edit_production: boolean
+  can_edit_orders: boolean
+  can_manage_sales: boolean
+  can_manage_users: boolean
+  can_view_clients: boolean
 }
 
 // ── دالة موحّدة لجلب tenant_id بأمان (بدل تكرارها في كل مكان) ──
@@ -80,7 +111,7 @@ export default function PermissionsPage() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, full_name, email, role')
+        .select('id, full_name, email, role, can_edit_production, can_edit_orders, can_manage_sales, can_manage_users, can_view_clients')
         .order('full_name', { ascending: true })
       if (error) throw error
       setAppUsers(data || [])
@@ -99,6 +130,36 @@ export default function PermissionsPage() {
       setAppUsers(prev => prev.map(u => u.id === id ? { ...u, role } : u))
     } catch (err: any) {
       alert('تعذر تغيير الدور: ' + err.message + '\nملحوظة: تغيير الأدوار مسموح به فقط لصاحب الحساب (owner).')
+    } finally {
+      setSavingRole(null)
+    }
+  }
+
+  async function updatePermission(id: string, key: PermissionKey, value: boolean) {
+    setSavingRole(id)
+    try {
+      const { error } = await supabase.from('users').update({ [key]: value }).eq('id', id)
+      if (error) throw error
+      setAppUsers(prev => prev.map(u => u.id === id ? { ...u, [key]: value } : u))
+    } catch (err: any) {
+      alert('تعذر تغيير الصلاحية: ' + err.message + '\nملحوظة: تغيير الصلاحيات مسموح به فقط لصاحب الحساب (owner).')
+    } finally {
+      setSavingRole(null)
+    }
+  }
+
+  async function applyRoleDefaults(user: AppUser) {
+    const defaults = ROLE_DEFAULT_PERMISSIONS[user.role]
+    if (!defaults) return
+    if (!confirm(`سيتم استبدال صلاحيات "${user.full_name}" بالصلاحيات الافتراضية لدور "${roles[user.role]}". هل تريد المتابعة؟`)) return
+
+    setSavingRole(user.id)
+    try {
+      const { error } = await supabase.from('users').update(defaults).eq('id', user.id)
+      if (error) throw error
+      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...defaults } : u))
+    } catch (err: any) {
+      alert('تعذر تطبيق الصلاحيات الافتراضية: ' + err.message)
     } finally {
       setSavingRole(null)
     }
@@ -173,57 +234,73 @@ export default function PermissionsPage() {
             </div>
           )}
 
-          <h2 className="text-sm font-bold text-gray-400 mb-4">تعيين الأدوار لمستخدمي النظام</h2>
+          <h2 className="text-sm font-bold text-gray-400 mb-4">تعيين الأدوار والصلاحيات الدقيقة لمستخدمي النظام</h2>
           {loadingUsers ? (
             <div className="text-center py-8 text-gray-600">جاري التحميل...</div>
           ) : (
-            <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="border-b border-white/5">
-                  <tr>
-                    {['المستخدم', 'البريد', 'الدور الحالي', 'تغيير الدور'].map(h => (
-                      <th key={h} className="text-right text-xs text-gray-600 font-medium px-5 py-3">{h}</th>
+            <div className="space-y-4">
+              {appUsers.map(u => (
+                <div key={u.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5">
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">
+                        {u.full_name?.[0] || '?'}
+                      </div>
+                      <div>
+                        <div className="text-sm text-white font-bold">{u.full_name}</div>
+                        <div className="text-xs text-gray-500">{u.email}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={u.role}
+                        disabled={savingRole === u.id}
+                        onChange={e => updateRole(u.id, e.target.value)}
+                        className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
+                      >
+                        {Object.entries(roles).map(([k, v]) => (
+                          <option key={k} value={k}>{v}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => applyRoleDefaults(u)}
+                        disabled={savingRole === u.id}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
+                      >
+                        ↺ تطبيق صلاحيات الدور الافتراضية
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-white/5 mb-4" />
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    {PERMISSION_KEYS.map(key => (
+                      <label
+                        key={key}
+                        className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border cursor-pointer transition ${
+                          u[key] ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-white/5 border-white/10 text-gray-500'
+                        } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={u[key]}
+                          onChange={e => updatePermission(u.id, key, e.target.checked)}
+                          className="accent-amber-500"
+                        />
+                        {PERMISSION_LABELS[key]}
+                      </label>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {appUsers.map(u => (
-                    <tr key={u.id} className="border-b border-white/5 hover:bg-white/5 transition">
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">
-                            {u.full_name?.[0] || '?'}
-                          </div>
-                          <span className="text-xs text-white">{u.full_name}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-xs text-gray-500">{u.email}</td>
-                      <td className="px-5 py-3">
-                        <span className="text-xs text-amber-400 font-bold">{roles[u.role] || u.role}</span>
-                      </td>
-                      <td className="px-5 py-3">
-                        <select
-                          value={u.role}
-                          disabled={savingRole === u.id}
-                          onChange={e => updateRole(u.id, e.target.value)}
-                          className="bg-[#0D1B2A] border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
-                        >
-                          {Object.entries(roles).map(([k, v]) => (
-                            <option key={k} value={k}>{v}</option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                  {appUsers.length === 0 && (
-                    <tr><td colSpan={4} className="text-center py-8 text-gray-600 text-sm">لا يوجد مستخدمون</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </div>
+                </div>
+              ))}
+              {appUsers.length === 0 && (
+                <div className="text-center py-8 text-gray-600 text-sm">لا يوجد مستخدمون</div>
+              )}
             </div>
           )}
           <p className="text-xs text-gray-600 mt-3">
-            💡 تغيير دور مستخدم مسموح به فقط لصاحب الحساب الأساسي (owner) داخل نفس المنشأة.
+            💡 تغيير الدور أو الصلاحيات مسموح به فقط لصاحب الحساب الأساسي (owner) داخل نفس المنشأة. زر "تطبيق صلاحيات الدور الافتراضية" يستبدل كل صلاحيات المستخدم دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي صلاحية بشكل فردي.
           </p>
         </div>
       )}
