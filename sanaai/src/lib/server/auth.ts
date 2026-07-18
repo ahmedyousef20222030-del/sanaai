@@ -1,7 +1,7 @@
 import { headers } from 'next/headers'
 import { supabaseAdmin } from './supabase'
 import { AuthenticationError, AuthorizationError } from '@/lib/errors'
-import { AuthUser, UserRole, Permission, rolePermissions } from '@/lib/types'
+import { AuthUser, UserRole, Permission, DbUserRow, derivePermissions } from '@/lib/types'
 
 export async function getAuthToken(): Promise<string | null> {
   const headersList = await headers()
@@ -17,31 +17,62 @@ export async function getCurrentUser(): Promise<AuthUser> {
     throw new AuthenticationError('Missing authentication token')
   }
 
-  try {
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token)
+  // Step 1 — AUTHENTICATION: verify this is a genuine, unexpired Supabase
+  // session token. This only tells us WHO is calling; it says nothing
+  // about their role/tenant/permissions.
+  const {
+    data: { user: authUser },
+    error: authError,
+  } = await supabaseAdmin.auth.getUser(token)
 
-    if (error || !user) {
-      throw new AuthenticationError('Invalid or expired token')
-    }
+  if (authError || !authUser) {
+    throw new AuthenticationError('Invalid or expired token')
+  }
 
-    const role = (user.user_metadata?.role as UserRole) || UserRole.Employee
-    const tenantId = (user.user_metadata?.tenant_id as string) || user.id
+  // Step 2 — AUTHORIZATION: role, tenant_id and permission flags are read
+  // from public.users — the exact same table every RLS policy in this
+  // project uses via get_tenant_id()/get_my_tenant_id()
+  // (`SELECT tenant_id FROM public.users WHERE id = auth.uid()`).
+  //
+  // 🔒 We deliberately do NOT read role/tenant_id from the JWT's
+  // user_metadata or app_metadata. user_metadata is writable by the
+  // signed-in user themselves via supabase.auth.updateUser({ data }))
+  // from the browser — trusting it here would let anyone hand
+  // themselves any role or any tenant_id when calling our API routes.
+  // app_metadata would avoid that specific problem, but would then be a
+  // SECOND source of truth that has to be kept in sync with this table
+  // (and with the `handle_new_user` trigger, and with RLS) — an
+  // unnecessary and error-prone duplication. public.users is already the
+  // single source of truth for every other part of this system, so we
+  // read from it here too.
+  const { data: row, error: rowError } = await supabaseAdmin
+    .from('users')
+    .select(
+      'id, tenant_id, role, is_active, can_edit_production, can_edit_orders, can_manage_sales, can_manage_users, can_view_clients',
+    )
+    .eq('id', authUser.id)
+    .single<DbUserRow>()
 
-    if (!Object.values(UserRole).includes(role)) {
-      throw new AuthenticationError('Invalid user role')
-    }
+  if (rowError || !row) {
+    throw new AuthenticationError('User profile not found — account may not be fully provisioned')
+  }
 
-    return {
-      id: user.id,
-      email: user.email,
-      role,
-      tenantId,
-      permissions: rolePermissions[role] || [],
-    }
-  } catch (error) {
-    if (error instanceof AuthenticationError) throw error
-    console.error('Auth error:', error)
-    throw new AuthenticationError('Failed to authenticate user')
+  if (!row.is_active) {
+    throw new AuthenticationError('This account has been deactivated')
+  }
+
+  if (!Object.values(UserRole).includes(row.role as UserRole)) {
+    // Defensive check only — the DB CHECK constraint `users_role_check`
+    // should already make this unreachable, but we never trust blindly.
+    throw new AuthenticationError('Invalid user role')
+  }
+
+  return {
+    id: row.id,
+    email: authUser.email,
+    role: row.role as UserRole,
+    tenantId: row.tenant_id,
+    permissions: derivePermissions(row),
   }
 }
 
@@ -57,16 +88,15 @@ export function checkAnyPermission(user: AuthUser, required: Permission[]): void
   }
 }
 
-export function checkAdmin(user: AuthUser): void {
-  if (user.role !== UserRole.Admin) {
-    throw new AuthorizationError('Admin access required')
+/** Owner and Admin are the only roles allowed to perform tenant-wide
+ * destructive/administrative actions that have no dedicated boolean
+ * column (e.g. deleting another user's account). */
+export function checkOwnerOrAdmin(user: AuthUser): void {
+  if (user.role !== UserRole.Owner && user.role !== UserRole.Admin) {
+    throw new AuthorizationError('Owner or Admin access required')
   }
 }
 
 export async function requireAuth() {
-  try {
-    return await getCurrentUser()
-  } catch (error) {
-    throw error
-  }
+  return getCurrentUser()
 }
