@@ -19,13 +19,6 @@ type TimelineEvent = {
   type: 'done' | 'active' | 'pending'
 }
 
-// Shape of a single row returned by the Supabase query below. Field names
-// match the real `orders` table columns 1:1 (see migrations) — this page
-// previously used invented names (total_price, paid_amount, progress,
-// completed_qty, start_date, supervisor, worker, sales_rep, image_url)
-// that don't exist as columns on `orders` at all, and queried two tables
-// (`stages`, `timeline`) that don't exist in the schema, which made this
-// page fail to load any order, ever.
 type OrderRow = {
   id: string
   order_number: string
@@ -48,12 +41,8 @@ type OrderRow = {
     total_orders?: number
     total_spent?: number
   } | null
-  // Real FK relationship (orders.assigned_user_id -> users.id)
   assigned_user: { full_name: string } | null
-  // Real table: order_images (order_id -> orders.id), one-to-many
   order_images: { image_url: string; sort_order: number }[]
-  // Real table: production (order_id -> orders.id). Modeled as an array
-  // since Supabase can't infer a 1:1 cardinality from the FK alone.
   production: {
     supervisor: { full_name: string } | null
     worker: { full_name: string } | null
@@ -102,11 +91,13 @@ export default function OrderDetailClient({ id }: { id: string }) {
   const router  = useRouter()
   const [order,   setOrder]   = useState<OrderRow | null>(null)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   useEffect(() => { fetchOrder() }, [id])
 
   async function fetchOrder() {
     setLoading(true)
+    setFetchError(null)
     const { data, error } = await supabase
       .from('orders')
       .select(`
@@ -123,7 +114,12 @@ export default function OrderDetailClient({ id }: { id: string }) {
       `)
       .eq('id', id)
       .single()
-    if (!error && data) setOrder(data as unknown as OrderRow)
+    if (error) {
+      console.error('Order fetch error:', error)
+      setFetchError(error.message)
+    } else if (data) {
+      setOrder(data as unknown as OrderRow)
+    }
     setLoading(false)
   }
 
@@ -133,6 +129,20 @@ export default function OrderDetailClient({ id }: { id: string }) {
       <div className="flex flex-col items-center gap-3 text-[#555a66]">
         <div className="w-9 h-9 border-[3px] border-[#D4A843] border-t-transparent rounded-full animate-spin" />
         <p className="text-sm" style={{ fontFamily: "'Cairo', sans-serif" }}>جاري تحميل الطلب...</p>
+      </div>
+    </div>
+  )
+
+  // ── Real error (distinct from "not found") ──────────────────────────────────
+  if (fetchError) return (
+    <div className="min-h-screen bg-[#08090A] flex items-center justify-center" dir="rtl">
+      <div className="text-center text-[#555a66] max-w-lg px-6" style={{ fontFamily: "'Cairo', sans-serif" }}>
+        <div className="text-5xl mb-3">⚠️</div>
+        <p className="text-[#C24B2A] font-bold mb-2">حدث خطأ أثناء تحميل الطلب</p>
+        <p className="text-xs text-[#A8A199] bg-[#111318] border border-white/10 rounded-lg p-3 mb-4 break-words text-left" dir="ltr">
+          {fetchError}
+        </p>
+        <button onClick={() => router.back()} className="text-[#D4A843] text-sm underline">رجوع</button>
       </div>
     </div>
   )
@@ -150,18 +160,11 @@ export default function OrderDetailClient({ id }: { id: string }) {
   // ── Derived values ────────────────────────────────────────────────────────────
   const prod = order.production?.[0]
   const depositPaid = order.deposit_paid || 0
-  // Prefer computing over the stored remaining_amount column: we can't
-  // confirm a DB trigger keeps it in sync on every update path, so
-  // deriving it client-side from total_amount/deposit_paid is always
-  // correct regardless.
   const remaining  = (order.total_amount || 0) - depositPaid
   const paidPct    = order.total_amount ? Math.round((depositPaid / order.total_amount) * 100) : 0
   const progress   = prod?.progress_pct ?? (order.status === 'تم التسليم' ? 100 : 0)
   const isLate     = order.delivery_status === 'متأخر'
 
-  // Real production stages (matches the 5 actual stage_* columns on the
-  // `production` table — the old version rendered 3 fictional stages
-  // that don't correspond to anything in the database).
   const stages: Stage[] = prod
     ? [
         { id: 'design', name: 'التصميم',        status: stageStatus(prod.stage_design), sub: 'مرحلة التصميم' },
@@ -172,10 +175,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
       ]
     : [{ id: 'none', name: 'لا يوجد أمر إنتاج مرتبط بعد', status: 'pending', sub: 'لم يُنشأ أمر إنتاج لهذا الطلب' }]
 
-  // There is no dedicated `timeline` table in the schema — this is a
-  // real timeline derived from actual timestamp columns instead of a
-  // table that doesn't exist (which is what silently broke this page
-  // before).
   const timeline: TimelineEvent[] = [
     { id: 'created', event: 'تم إنشاء الطلب', date: new Date(order.created_at).toLocaleDateString('ar-EG'), type: 'done' },
     ...(prod?.start_date
