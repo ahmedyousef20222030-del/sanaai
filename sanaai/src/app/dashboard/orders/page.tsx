@@ -8,7 +8,9 @@ type Order = {
   order_number: string
   status: string
   delivery_status: string
-  total_amount: number // ✅ تصحيح المسمى
+  total_amount: number
+  remaining_amount: number | null // ✅ عمود محسوب تلقائياً في قاعدة البيانات
+  attachments: string[] | null // ✅ مرفقات الطلب (أول صورة تُستخدم كلوجو العميل)
   expected_delivery: string
   created_at: string
   clients: { name: string; phone: string }
@@ -92,7 +94,9 @@ export default function OrdersPage() {
             <table className="w-full text-sm">
               <thead className="bg-white/[0.02] border-b border-white/5">
                 <tr className="text-right">
-                  {['رقم الطلب', 'العميل', 'الحالة', 'التسليم', 'المبلغ الإجمالي', 'التاريخ'].map(h => <th key={h} className="text-xs text-gray-500 font-medium px-5 py-4">{h}</th>)}
+                  {['رقم الطلب', 'المرفق', 'العميل', 'الحالة', 'التسليم', 'المتبقي', 'المبلغ الإجمالي', 'التاريخ'].map(h => (
+                    <th key={h} className="text-xs text-gray-500 font-medium px-5 py-4">{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -100,11 +104,25 @@ export default function OrdersPage() {
                   <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.03] transition cursor-pointer group" onClick={() => router.push(`/dashboard/orders/${o.id}`)}>
                     <td className="px-5 py-4 font-mono text-amber-400 text-xs font-bold">{o.order_number}</td>
                     <td className="px-5 py-4">
+                      {o.attachments && o.attachments.length > 0 ? (
+                        <img
+                          src={o.attachments[0]}
+                          alt={`مرفق ${o.clients?.name || 'العميل'}`}
+                          className="w-8 h-8 rounded-full object-cover border border-white/10"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-600 text-xs">
+                          🖼️
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-5 py-4">
                       <div className="font-semibold text-white text-xs">{o.clients?.name || '—'}</div>
                       <div className="text-gray-600 text-[10px]">{o.clients?.phone}</div>
                     </td>
                     <td className="px-5 py-4"><span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor[o.status] || 'bg-gray-500/20'}`}>{o.status}</span></td>
                     <td className={`px-5 py-4 text-xs font-medium ${deliveryColor[o.delivery_status] || 'text-gray-400'}`}>{o.delivery_status || 'في الموعد'}</td>
+                    <td className="px-5 py-4 text-red-400 font-bold text-xs">{Number(o.remaining_amount || 0).toLocaleString('ar-EG')} ج.م</td>
                     <td className="px-5 py-4 text-amber-400 font-bold text-xs">{Number(o.total_amount || 0).toLocaleString('ar-EG')} ج.م</td>
                     <td className="px-5 py-4 text-gray-600 text-[10px]">{new Date(o.created_at).toLocaleDateString('ar-EG')}</td>
                   </tr>
