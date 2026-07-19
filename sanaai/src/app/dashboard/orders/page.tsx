@@ -108,10 +108,10 @@ export default function OrdersPage() {
                         <img
                           src={o.attachments[0]}
                           alt={`مرفق ${o.clients?.name || 'العميل'}`}
-                          className="w-8 h-8 rounded-full object-cover border border-white/10"
+                          className="w-24 h-24 rounded-xl object-cover border border-white/10"
                         />
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-600 text-xs">
+                        <div className="w-24 h-24 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-600 text-2xl">
                           🖼️
                         </div>
                       )}
