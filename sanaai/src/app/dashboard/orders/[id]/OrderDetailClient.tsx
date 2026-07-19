@@ -19,28 +19,27 @@ type TimelineEvent = {
   type: 'done' | 'active' | 'pending'
 }
 
-type Order = {
+// Shape of a single row returned by the Supabase query below. Field names
+// match the real `orders` table columns 1:1 (see migrations) — this page
+// previously used invented names (total_price, paid_amount, progress,
+// completed_qty, start_date, supervisor, worker, sales_rep, image_url)
+// that don't exist as columns on `orders` at all, and queried two tables
+// (`stages`, `timeline`) that don't exist in the schema, which made this
+// page fail to load any order, ever.
+type OrderRow = {
   id: string
   order_number: string
   status: string
   delivery_status: string
-  total_price: number
-  paid_amount?: number
-  progress?: number
-  quantity?: number
-  completed_qty?: number
-  expected_delivery: string
-  start_date?: string
+  total_amount: number
+  deposit_paid: number | null
+  remaining_amount: number | null
+  quantity: number
+  sector: string | null
+  details: string | null
+  expected_delivery: string | null
+  actual_delivery: string | null
   created_at: string
-  details?: string
-  sector?: string
-  supervisor?: string
-  worker?: string
-  sales_rep?: string
-  image_url?: string
-  week_label?: string
-  stages?: Stage[]
-  timeline?: TimelineEvent[]
   clients: {
     id: string
     name: string
@@ -48,7 +47,25 @@ type Order = {
     city?: string
     total_orders?: number
     total_spent?: number
-  }
+  } | null
+  // Real FK relationship (orders.assigned_user_id -> users.id)
+  assigned_user: { full_name: string } | null
+  // Real table: order_images (order_id -> orders.id), one-to-many
+  order_images: { image_url: string; sort_order: number }[]
+  // Real table: production (order_id -> orders.id). Modeled as an array
+  // since Supabase can't infer a 1:1 cardinality from the FK alone.
+  production: {
+    supervisor: { full_name: string } | null
+    worker: { full_name: string } | null
+    start_date: string | null
+    completed_qty: number | null
+    progress_pct: number | null
+    stage_design: string | null
+    stage_cut: string | null
+    stage_sew: string | null
+    stage_print: string | null
+    stage_pack: string | null
+  }[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -63,6 +80,12 @@ const STATUS_PILL: Record<string, string> = {
   'مغلق':        'bg-[rgba(50,50,55,0.15)]   text-[#6B6660] border border-[rgba(50,50,55,0.3)]',
 }
 
+function stageStatus(v: string | null): Stage['status'] {
+  if (v === 'done') return 'done'
+  if (v === 'in_progress') return 'progress'
+  return 'pending'
+}
+
 function SectionTitle({ children }: { children: string }) {
   return (
     <div className="flex items-center gap-2 mb-3">
@@ -75,21 +98,32 @@ function SectionTitle({ children }: { children: string }) {
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────────
-export default function OrderDetailPage({ params }: { params: { id: string } }) {
+export default function OrderDetailClient({ id }: { id: string }) {
   const router  = useRouter()
-  const [order,   setOrder]   = useState<Order | null>(null)
+  const [order,   setOrder]   = useState<OrderRow | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { fetchOrder() }, [params.id])
+  useEffect(() => { fetchOrder() }, [id])
 
   async function fetchOrder() {
     setLoading(true)
     const { data, error } = await supabase
       .from('orders')
-      .select('*, clients(*), stages(*), timeline(*)')
-      .eq('id', params.id)
+      .select(`
+        *,
+        clients(*),
+        assigned_user:users!assigned_user_id(full_name),
+        order_images(image_url, sort_order),
+        production(
+          start_date, completed_qty, progress_pct,
+          stage_design, stage_cut, stage_sew, stage_print, stage_pack,
+          supervisor:users!supervisor_id(full_name),
+          worker:users!worker_id(full_name)
+        )
+      `)
+      .eq('id', id)
       .single()
-    if (!error && data) setOrder(data)
+    if (!error && data) setOrder(data as unknown as OrderRow)
     setLoading(false)
   }
 
@@ -114,17 +148,48 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   )
 
   // ── Derived values ────────────────────────────────────────────────────────────
-  const remaining  = (order.total_price || 0) - (order.paid_amount || 0)
-  const paidPct    = order.total_price ? Math.round(((order.paid_amount || 0) / order.total_price) * 100) : 0
-  const progress   = order.progress ?? (order.status === 'تم التسليم' ? 100 : 0)
+  const prod = order.production?.[0]
+  const depositPaid = order.deposit_paid || 0
+  // Prefer computing over the stored remaining_amount column: we can't
+  // confirm a DB trigger keeps it in sync on every update path, so
+  // deriving it client-side from total_amount/deposit_paid is always
+  // correct regardless.
+  const remaining  = (order.total_amount || 0) - depositPaid
+  const paidPct    = order.total_amount ? Math.round((depositPaid / order.total_amount) * 100) : 0
+  const progress   = prod?.progress_pct ?? (order.status === 'تم التسليم' ? 100 : 0)
   const isLate     = order.delivery_status === 'متأخر'
 
-  const defaultStages: Stage[] = [
-    { id: '1', name: 'الشراء والمواد الخام',  status: 'pending', sub: 'لم يبدأ بعد' },
-    { id: '2', name: 'الطباعة والتطريز',       status: 'pending', sub: 'في انتظار المرحلة السابقة' },
-    { id: '3', name: 'الشحن والتوصيل',         status: 'pending', sub: 'في انتظار اكتمال الإنتاج' },
+  // Real production stages (matches the 5 actual stage_* columns on the
+  // `production` table — the old version rendered 3 fictional stages
+  // that don't correspond to anything in the database).
+  const stages: Stage[] = prod
+    ? [
+        { id: 'design', name: 'التصميم',        status: stageStatus(prod.stage_design), sub: 'مرحلة التصميم' },
+        { id: 'cut',    name: 'القص',            status: stageStatus(prod.stage_cut),    sub: 'مرحلة القص' },
+        { id: 'sew',    name: 'الخياطة',         status: stageStatus(prod.stage_sew),    sub: 'مرحلة الخياطة' },
+        { id: 'print',  name: 'الطباعة',         status: stageStatus(prod.stage_print),  sub: 'مرحلة الطباعة' },
+        { id: 'pack',   name: 'التغليف',         status: stageStatus(prod.stage_pack),   sub: 'مرحلة التغليف' },
+      ]
+    : [{ id: 'none', name: 'لا يوجد أمر إنتاج مرتبط بعد', status: 'pending', sub: 'لم يُنشأ أمر إنتاج لهذا الطلب' }]
+
+  // There is no dedicated `timeline` table in the schema — this is a
+  // real timeline derived from actual timestamp columns instead of a
+  // table that doesn't exist (which is what silently broke this page
+  // before).
+  const timeline: TimelineEvent[] = [
+    { id: 'created', event: 'تم إنشاء الطلب', date: new Date(order.created_at).toLocaleDateString('ar-EG'), type: 'done' },
+    ...(prod?.start_date
+      ? [{ id: 'production_start', event: 'بدء الإنتاج', date: new Date(prod.start_date).toLocaleDateString('ar-EG'), type: 'done' as const }]
+      : [{ id: 'production_start', event: 'بدء الإنتاج', date: '—', type: 'pending' as const }]),
+    order.actual_delivery
+      ? { id: 'delivered', event: 'تم التسليم للعميل', date: new Date(order.actual_delivery).toLocaleDateString('ar-EG'), type: 'done' }
+      : {
+          id: 'expected',
+          event: 'الموعد المتوقع للتسليم',
+          date: order.expected_delivery ? new Date(order.expected_delivery).toLocaleDateString('ar-EG') : '—',
+          type: isLate ? 'active' : 'pending',
+        },
   ]
-  const stages = (order.stages && order.stages.length > 0) ? order.stages : defaultStages
 
   const stageIcon = (s: Stage['status']) => s === 'done' ? '✓' : s === 'progress' ? '⚙' : '○'
   const stageIconClass = (s: Stage['status']) =>
@@ -145,6 +210,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const tlIcon = (t: TimelineEvent['type']) => t === 'done' ? '✓' : t === 'active' ? '⚡' : '○'
 
   const clientInitial = (order.clients?.name || 'ع').charAt(0)
+
+  const sortedImages = [...(order.order_images || [])].sort((a, b) => a.sort_order - b.sort_order)
+  const imageUrl = sortedImages[0]?.image_url
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
@@ -233,7 +301,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           موعد التسليم
         </div>
 
-        {order.quantity && (
+        {order.quantity > 0 && (
           <>
             <div className="w-px h-[22px] bg-white/[0.08]" />
             <div className="text-[12px] text-[#6B6660]">
@@ -243,11 +311,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </>
         )}
 
-        {order.sales_rep && (
+        {order.assigned_user?.full_name && (
           <>
             <div className="w-px h-[22px] bg-white/[0.08]" />
             <div className="text-[12px] text-[#6B6660]">
-              <strong className="text-[#A8A199] text-[14px] font-bold block mb-0.5">{order.sales_rep}</strong>
+              <strong className="text-[#A8A199] text-[14px] font-bold block mb-0.5">{order.assigned_user.full_name}</strong>
               مندوب المبيعات
             </div>
           </>
@@ -262,10 +330,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
           {/* Design image */}
           <div className="relative h-[280px] rounded-2xl overflow-hidden bg-[#0D0F14] mb-6 group">
-            {order.image_url ? (
+            {imageUrl ? (
               <>
                 <img
-                  src={order.image_url}
+                  src={imageUrl}
                   alt={`تصميم ${order.order_number}`}
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                 />
@@ -302,12 +370,12 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 { label: 'رقم الطلب',       value: order.order_number,  color: 'text-[#D4A843]' },
                 { label: 'القطاع',           value: order.sector || '—' },
                 { label: 'الكمية الكلية',   value: order.quantity ? `${fmt(order.quantity)} قطعة` : '—' },
-                { label: 'المنجز حتى الآن', value: order.completed_qty ? `${fmt(order.completed_qty)} قطعة` : '—', color: 'text-[#D4A843]' },
-                { label: 'تاريخ البدء',     value: order.start_date ? new Date(order.start_date).toLocaleDateString('ar-EG') : '—' },
+                { label: 'المنجز حتى الآن', value: prod?.completed_qty ? `${fmt(prod.completed_qty)} قطعة` : '—', color: 'text-[#D4A843]' },
+                { label: 'تاريخ بدء الإنتاج', value: prod?.start_date ? new Date(prod.start_date).toLocaleDateString('ar-EG') : '—' },
                 { label: 'موعد التسليم',    value: order.expected_delivery ? new Date(order.expected_delivery).toLocaleDateString('ar-EG') : '—',
                                              color: isLate ? 'text-[#C24B2A]' : undefined },
-                { label: 'المشرف',          value: order.supervisor || '—' },
-                { label: 'العامل المسؤول',  value: order.worker || '—' },
+                { label: 'المشرف',          value: prod?.supervisor?.full_name || '—' },
+                { label: 'العامل المسؤول',  value: prod?.worker?.full_name || '—' },
               ].map((item, i) => (
                 <div key={i} className="bg-[#111318] border border-white/[0.07] rounded-[10px] px-3.5 py-3">
                   <div className="text-[11px] text-[#6B6660] mb-1">{item.label}</div>
@@ -343,7 +411,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             <div>
               <div className="flex justify-between text-[12px] mb-2">
                 <span className="text-[#6B6660]">التقدم الكلي للطلب</span>
-                <span className="font-bold text-[#D4A843]">{progress}%</span>
+                <span className="font-bold text-[#D4A843]">{Math.round(progress)}%</span>
               </div>
               <div className="h-1.5 bg-white/[0.07] rounded-full overflow-hidden">
                 <div
@@ -375,7 +443,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
             {(order.clients?.total_orders !== undefined || order.clients?.total_spent !== undefined) && (
               <div className="grid grid-cols-2 gap-2 mb-3">
-                {order.clients.total_orders !== undefined && (
+                {order.clients?.total_orders !== undefined && (
                   <div className="bg-[#0D0F14] rounded-lg py-2 text-center">
                     <div className="text-[14px] font-black text-[#D4A843]"
                          style={{ fontFamily: "'Tajawal', sans-serif" }}>
@@ -384,11 +452,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                     <div className="text-[10px] text-[#6B6660] mt-0.5">إجمالي طلبات</div>
                   </div>
                 )}
-                {order.clients.total_spent !== undefined && (
+                {order.clients?.total_spent !== undefined && (
                   <div className="bg-[#0D0F14] rounded-lg py-2 text-center">
                     <div className="text-[14px] font-black text-[#D4A843]"
                          style={{ fontFamily: "'Tajawal', sans-serif" }}>
-                      {fmt(Math.round(order.clients.total_spent / 1000))}K
+                      {fmt(Math.round((order.clients.total_spent || 0) / 1000))}K
                     </div>
                     <div className="text-[10px] text-[#6B6660] mt-0.5">إجمالي إنفاق</div>
                   </div>
@@ -406,7 +474,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 </a>
               )}
               {order.clients?.phone && (
-                <a href={`https://wa.me/${order.clients.phone.replace(/\D/g, '')}`} target="_blank"
+                <a href={`https://wa.me/${order.clients.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"
                    className="flex-1 bg-white/[0.05] border border-white/[0.08] rounded-lg py-2
                               text-center text-[11px] text-[#A8A199] transition-all
                               hover:border-[rgba(212,168,67,0.4)] hover:text-[#D4A843]">
@@ -415,7 +483,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               )}
               {order.clients?.id && (
                 <button
-                  onClick={() => router.push(`/dashboard/clients/${order.clients.id}`)}
+                  onClick={() => router.push(`/dashboard/clients/${order.clients!.id}`)}
                   className="flex-1 bg-white/[0.05] border border-white/[0.08] rounded-lg py-2
                              text-center text-[11px] text-[#A8A199] transition-all
                              hover:border-[rgba(212,168,67,0.4)] hover:text-[#D4A843]"
@@ -433,8 +501,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             </div>
 
             {[
-              { label: 'إجمالي الطلب',   value: fmt(order.total_price || 0), cls: 'text-[#F0EDE8] text-[16px] font-black' },
-              { label: 'المدفوع (عربون)', value: fmt(order.paid_amount || 0), cls: 'text-[#1B7A6E] text-[14px] font-bold' },
+              { label: 'إجمالي الطلب',   value: fmt(order.total_amount || 0), cls: 'text-[#F0EDE8] text-[16px] font-black' },
+              { label: 'المدفوع (عربون)', value: fmt(depositPaid), cls: 'text-[#1B7A6E] text-[14px] font-bold' },
               { label: 'المتبقي',         value: fmt(remaining),              cls: 'text-[#C24B2A] text-[14px] font-bold' },
             ].map((r, i, arr) => (
               <div key={i}
@@ -461,30 +529,26 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           <div>
             <SectionTitle>سجل الأنشطة</SectionTitle>
 
-            {order.timeline && order.timeline.length > 0 ? (
-              <div className="flex flex-col">
-                {order.timeline.map((item, i) => (
-                  <div key={item.id} className="flex gap-3 pb-4 relative">
-                    {i < order.timeline!.length - 1 && (
-                      <div className="absolute right-[10px] top-[22px] w-px bg-white/[0.07]"
-                           style={{ height: 'calc(100% - 10px)' }} />
-                    )}
-                    <div className={`w-[22px] h-[22px] rounded-full flex-shrink-0 flex items-center justify-center
-                                    text-[10px] mt-0.5 ${tlDotClass(item.type)}`}>
-                      {tlIcon(item.type)}
-                    </div>
-                    <div className="flex-1">
-                      <div className={`text-[13px] font-semibold mb-0.5 ${item.type === 'pending' ? 'text-[#555a66]' : 'text-[#F0EDE8]'}`}>
-                        {item.event}
-                      </div>
-                      <div className="text-[11px] text-[#6B6660]">{item.date}</div>
-                    </div>
+            <div className="flex flex-col">
+              {timeline.map((item, i) => (
+                <div key={item.id} className="flex gap-3 pb-4 relative">
+                  {i < timeline.length - 1 && (
+                    <div className="absolute right-[10px] top-[22px] w-px bg-white/[0.07]"
+                         style={{ height: 'calc(100% - 10px)' }} />
+                  )}
+                  <div className={`w-[22px] h-[22px] rounded-full flex-shrink-0 flex items-center justify-center
+                                  text-[10px] mt-0.5 ${tlDotClass(item.type)}`}>
+                    {tlIcon(item.type)}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[12px] text-[#555a66] text-center py-6">لا توجد أنشطة مسجلة بعد</p>
-            )}
+                  <div className="flex-1">
+                    <div className={`text-[13px] font-semibold mb-0.5 ${item.type === 'pending' ? 'text-[#555a66]' : 'text-[#F0EDE8]'}`}>
+                      {item.event}
+                    </div>
+                    <div className="text-[11px] text-[#6B6660]">{item.date}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
         </div>

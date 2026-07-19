@@ -75,7 +75,7 @@ export default function QualityPage() {
 
   async function updateNotes(id: string, notes: string) {
     try {
-      const { error } = await supabase.from('quality_//checks').update({ notes }).eq('id', id)
+      const { error } = await supabase.from('quality_checks').update({ notes }).eq('id', id)
       if (error) throw error
       // تحديث محلي صامت
       setChecks(prev => prev.map(c => c.id === id ? { ...c, notes } : c))
