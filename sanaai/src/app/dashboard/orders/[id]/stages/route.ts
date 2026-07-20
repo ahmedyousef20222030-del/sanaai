@@ -66,10 +66,7 @@ export async function GET(
     })
 
     // Organize by stage group
-    const grouped: Record<
-      string,
-      Array<(typeof filteredDefs)[0] & { completion?: (typeof completions)[0] | null; progress?: number }>
-    > = {}
+    const grouped: Record<string, any[]> = {}
 
     for (const def of filteredDefs) {
       if (!grouped[def.stage_group]) {
