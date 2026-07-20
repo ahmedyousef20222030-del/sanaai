@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { authApi } from '@/lib/api/client'
+import { Permission } from '@/lib/types'
+import OrderImageGallery from './OrderImageGallery'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Stage = {
@@ -42,7 +45,10 @@ type OrderRow = {
     total_spent?: number
   } | null
   assigned_user: { full_name: string } | null
-  order_images: { image_url: string; sort_order: number }[]
+  // Legacy images stored directly on this array column, from before the
+  // order_images gallery table existed — see OrderImageGallery's
+  // migration option for reconciling this with the new system.
+  attachments: string[] | null
   production: {
     supervisor: { full_name: string } | null
     worker: { full_name: string } | null
@@ -92,8 +98,23 @@ export default function OrderDetailClient({ id }: { id: string }) {
   const [order,   setOrder]   = useState<OrderRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [canEditOrders, setCanEditOrders] = useState(false)
+  const [tenantId, setTenantId] = useState<string | null>(null)
 
-  useEffect(() => { fetchOrder() }, [id])
+  useEffect(() => {
+    fetchOrder()
+    authApi.getCurrentUser()
+      .then((me) => {
+        const user = me as { tenantId: string; permissions: string[] }
+        setCanEditOrders(user.permissions.includes(Permission.OrdersUpdate))
+        setTenantId(user.tenantId)
+      })
+      .catch(() => {
+        // Fail closed: if we can't confirm the permission, the gallery
+        // stays read-only.
+        setCanEditOrders(false)
+      })
+  }, [id])
 
   async function fetchOrder() {
     setLoading(true)
@@ -104,7 +125,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
         *,
         clients(*),
         assigned_user:users!assigned_user_id(full_name),
-        order_images(image_url, sort_order),
         production(
           start_date, completed_qty, progress_pct,
           stage_design, stage_cut, stage_sew, stage_print, stage_pack,
@@ -209,9 +229,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
   const tlIcon = (t: TimelineEvent['type']) => t === 'done' ? '✓' : t === 'active' ? '⚡' : '○'
 
   const clientInitial = (order.clients?.name || 'ع').charAt(0)
-
-  const sortedImages = [...(order.order_images || [])].sort((a, b) => a.sort_order - b.sort_order)
-  const imageUrl = sortedImages[0]?.image_url
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
@@ -327,29 +344,17 @@ export default function OrderDetailClient({ id }: { id: string }) {
         {/* ── Left panel ── */}
         <div className="p-7 border-l border-white/[0.06]">
 
-          {/* Design image */}
-          <div className="relative h-[280px] rounded-2xl overflow-hidden bg-[#0D0F14] mb-6 group">
-            {imageUrl ? (
-              <>
-                <img
-                  src={imageUrl}
-                  alt={`تصميم ${order.order_number}`}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[rgba(8,9,10,0.7)] to-transparent" />
-                <span className="absolute bottom-3.5 right-3.5 bg-[rgba(212,168,67,0.9)] text-[#08090A]
-                                 px-3 py-1 rounded-lg text-[12px] font-bold">
-                  🖼 التصميم المرفق
-                </span>
-              </>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3
-                              bg-gradient-to-br from-[#0D0F14] to-[#1A1D26]">
-                <span className="text-5xl opacity-20">👕</span>
-                <span className="text-[13px] text-[#555a66]">لم يُرفق تصميم بعد</span>
-              </div>
-            )}
-          </div>
+          {/* Order images gallery — upload/reorder/delete gated by
+              can_edit_orders; falls back to legacy orders.attachments
+              for orders created before this gallery existed. */}
+          {tenantId && (
+            <OrderImageGallery
+              orderId={order.id}
+              tenantId={tenantId}
+              canEdit={canEditOrders}
+              legacyAttachments={order.attachments || []}
+            />
+          )}
 
           {/* Specs */}
           {order.details && (
