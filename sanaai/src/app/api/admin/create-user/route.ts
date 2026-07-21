@@ -44,7 +44,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'تعذر تحديد بيانات المنشأة' }, { status: 403 })
     }
     if (callerRow.role !== 'owner') {
-      return NextResponse.json({ error: 'إضافة مستخدمين جدد مسموح بها فقط لصاحب الحساب (owner)' }, { status: 403 })
+      return NextResponse.json({
+        error: `إضافة مستخدمين جدد مسموح بها فقط لصاحب الحساب (owner). البريد المستخدم حالياً: ${caller.email} — الدور المكتشف: ${callerRow.role}`
+      }, { status: 403 })
     }
 
     // ── بيانات المستخدم الجديد من الفورم ──
