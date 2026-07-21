@@ -72,20 +72,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: createErr?.message || 'تعذر إنشاء الحساب' }, { status: 400 })
     }
 
-    // ── ربط المستخدم الجديد بنفس منشأة صاحب الحساب ──
-    const { error: linkErr } = await supabaseAdmin.from('users').insert({
-      id: created.user.id,
-      tenant_id: callerRow.tenant_id,
-      email,
-      full_name,
-      role,
-      is_active: true,
-    })
+    // ── ملاحظة مهمة ──
+    // إنشاء الحساب أعلاه يُفعّل تلقائياً trigger باسم handle_new_user على
+    // مستوى قاعدة البيانات، واللي بينشئ منشأة (tenant) جديدة وصف جديد في
+    // جدول users تلقائياً. عشان كده منقدرش نعمل insert جديد (هيتعارض مع
+    // الصف اللي اتعمل تلقائياً بنفس الـ id) — لازم نُحدّث الصف الموجود
+    // بدل ما نضيف واحد جديد، ونحذف المنشأة الوهمية اللي اتعملت زيادة.
+
+    const { data: autoRow } = await supabaseAdmin
+      .from('users')
+      .select('tenant_id')
+      .eq('id', created.user.id)
+      .single()
+    const bogusTenantId = autoRow?.tenant_id
+
+    const { error: linkErr } = await supabaseAdmin
+      .from('users')
+      .update({
+        tenant_id: callerRow.tenant_id,
+        role,
+        full_name,
+        is_active: true,
+      })
+      .eq('id', created.user.id)
 
     if (linkErr) {
       // لو فشل الربط، نحذف حساب auth.users عشان ميفضلش حساب يتيم بلا منشأة
       await supabaseAdmin.auth.admin.deleteUser(created.user.id)
       return NextResponse.json({ error: 'تعذر ربط المستخدم بالمنشأة: ' + linkErr.message }, { status: 400 })
+    }
+
+    // تنظيف المنشأة الوهمية اللي اتعملت تلقائياً بسبب الـ trigger (لو مختلفة عن منشأة صاحب الطلب)
+    if (bogusTenantId && bogusTenantId !== callerRow.tenant_id) {
+      await supabaseAdmin.from('tenants').delete().eq('id', bogusTenantId)
     }
 
     return NextResponse.json({ success: true, userId: created.user.id })
