@@ -1,13 +1,8 @@
-import { Suspense } from 'react'
-import OrderDetailClientNew from './OrderDetailClientNew'
+import OrderDetailClient from './OrderDetailClient'
 
 type Props = { params: Promise<{ id: string }> }
 
 export default async function OrderDetailPage({ params }: Props) {
   const { id } = await params
-  return (
-    <Suspense fallback={<div>جاري التحميل...</div>}>
-      <OrderDetailClientNew id={id} />
-    </Suspense>
-  )
+  return <OrderDetailClient id={id} />
 }
