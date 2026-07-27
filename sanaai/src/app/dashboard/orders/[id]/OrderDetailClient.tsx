@@ -53,12 +53,22 @@ export default function OrderDetailClient({ id }: { id: string }) {
         .select(
           `
           *,
-          supervisor:users!supervisor_id ( full_name ),
-          orders (
-            order_number, order_date, expected_delivery,
-            total_price, deposit_paid, remaining,
-            notes, details, design_url, attachments,
-            clients (name, phone, address)
+          orders!order_id (
+            order_number,
+            order_date,
+            expected_delivery,
+            total_price,
+            deposit_paid,
+            remaining,
+            notes,
+            details,
+            design_url,
+            attachments,
+            clients (
+              name,
+              phone,
+              address
+            )
           )
         `
         )
@@ -76,8 +86,8 @@ export default function OrderDetailClient({ id }: { id: string }) {
         order_date: data.orders?.order_date || '',
         end_date: data.orders?.expected_delivery,
         final_status: data.final_status || 'بانتظار التنفيذ',
-        sales_rep: data.supervisor?.full_name || '—',
-        supervisor: data.supervisor?.full_name,
+        sales_rep: data.orders?.supervisor?.full_name || '—',
+        supervisor: data.orders?.supervisor?.full_name,
         address: data.orders?.clients?.address,
         notes: data.orders?.notes,
         total_price: data.orders?.total_price,
