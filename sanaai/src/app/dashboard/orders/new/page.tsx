@@ -11,6 +11,7 @@ type InventoryItem = { id: string; name: string; current_stock: number; unit: st
 
 const baseSectors = ['مدارس', 'مطاعم وفنادق', 'شركات كوربوريت', 'حكومي', 'أفراد', 'أخرى']
 const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'فري سايز', 'مقاس خاص']
+const executionTypes = ['طباعة', 'تطريز', 'بدون'] as const
 
 type OrderItem = {
   inventory_id: string
@@ -20,6 +21,7 @@ type OrderItem = {
   unit_price: number
   stock_qty: number
   status: 'متاح من المخزون' | 'مطلوب تصنيع' | 'مطلوب شراء'
+  execution_type: typeof executionTypes[number]
 }
 
 export default function NewOrderPage() {
@@ -42,6 +44,7 @@ export default function NewOrderPage() {
   const [form, setForm] = useState({
     client_id: '', quantity: '', unit_price: '',
     deposit_amount: '', expected_delivery: '', notes: '', sector: 'مدارس',
+    execution_type: 'طباعة' as typeof executionTypes[number],
   })
 
   useEffect(() => {
@@ -63,7 +66,8 @@ export default function NewOrderPage() {
   function addItem() {
     setItems(prev => [...prev, {
       inventory_id: '', product_name: '', size: 'M',
-      qty: 1, unit_price: 0, stock_qty: 0, status: 'متاح من المخزون'
+      qty: 1, unit_price: 0, stock_qty: 0, status: 'متاح من المخزون',
+      execution_type: 'طباعة',
     }])
   }
 
@@ -95,6 +99,12 @@ export default function NewOrderPage() {
     'متاح من المخزون': 'bg-green-500/20 text-green-400 border-green-500/30',
     'مطلوب تصنيع': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
     'مطلوب شراء': 'bg-red-500/20 text-red-400 border-red-500/30',
+  }
+
+  const executionColor: Record<string, string> = {
+    'طباعة': 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+    'تطريز': 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    'بدون': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
   }
 
   // ── رفع المرفقات (صور/ملفات) وربطها بالطلب بعد إنشائه ──────────────
@@ -156,6 +166,7 @@ export default function NewOrderPage() {
       // 1. إنشاء الطلب
       // ملاحظة: أسماء الأعمدة دي متطابقة مع جدول orders الفعلي في Supabase
       // (تم التأكد منها عبر information_schema.columns بتاريخ اليوم)
+      // ⚠️ execution_type عمود جديد — يجب إضافته لجدول orders في Supabase (نوع text)
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert({
@@ -169,6 +180,7 @@ export default function NewOrderPage() {
           sector: effectiveSector,
           status: 'جديد',
           delivery_status: 'في الموعد',
+          execution_type: items.length === 0 ? form.execution_type : null,
         })
         .select().single()
 
@@ -176,6 +188,7 @@ export default function NewOrderPage() {
 
       // 2. إضافة الأصناف إلى جدول order_items
       if (items.length > 0) {
+        // ⚠️ execution_type عمود جديد — يجب إضافته لجدول order_items في Supabase (نوع text)
         const itemsToInsert = items.map(item => ({
           order_id: order.id,
           tenant_id: me.tenant_id,
@@ -185,6 +198,7 @@ export default function NewOrderPage() {
           quantity: item.qty,
           unit_price: item.unit_price,
           fulfillment_type: item.status,
+          execution_type: item.execution_type,
           source: item.inventory_id ? 'مخزون' : 'خارجي'
         }))
 
@@ -261,15 +275,16 @@ export default function NewOrderPage() {
         ? items.map(item => [
             item.product_name,
             item.size,
+            item.execution_type,
             item.qty.toString(),
             `${item.unit_price.toLocaleString()} ج.م`,
             `${(item.qty * item.unit_price).toLocaleString()} ج.م`,
           ])
-        : [[form.notes || 'طلب إنتاج', '—', form.quantity, `${form.unit_price} ج.م`, `${total.toLocaleString()} ج.م`]]
+        : [[form.notes || 'طلب إنتاج', '—', form.execution_type, form.quantity, `${form.unit_price} ج.م`, `${total.toLocaleString()} ج.م`]]
 
       autoTable(doc, {
         startY: 80,
-        head: [['الصنف', 'المقاس', 'الكمية', 'سعر الوحدة', 'الإجمالي']],
+        head: [['الصنف', 'المقاس', 'التنفيذ', 'الكمية', 'سعر الوحدة', 'الإجمالي']],
         body: tableBody,
         styles: { halign: 'center', fontSize: 10, font: 'helvetica' },
         headStyles: { fillColor: [13, 27, 42], textColor: [200, 150, 62] },
@@ -419,7 +434,7 @@ export default function NewOrderPage() {
 
                 {items.map((item, i) => (
                   <div key={i} className="bg-[#0D1B2A] rounded-xl border border-white/5 p-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 items-end">
                       <div className="sm:col-span-2">
                         <label className="block text-xs text-gray-600 mb-1">الصنف</label>
                         <select value={item.inventory_id} onChange={e => updateItem(i, 'inventory_id', e.target.value)} className="w-full bg-[#111927] border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-amber-500/50">
@@ -431,6 +446,12 @@ export default function NewOrderPage() {
                         <label className="block text-xs text-gray-600 mb-1">المقاس</label>
                         <select value={item.size} onChange={e => updateItem(i, 'size', e.target.value)} className="w-full bg-[#111927] border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-amber-500/50">
                           {sizes.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">التنفيذ</label>
+                        <select value={item.execution_type} onChange={e => updateItem(i, 'execution_type', e.target.value)} className="w-full bg-[#111927] border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-amber-500/50">
+                          {executionTypes.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                       </div>
                       <div>
@@ -447,6 +468,7 @@ export default function NewOrderPage() {
                         {item.inventory_id && (
                           <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${statusColor[item.status]}`}>{item.status}</span>
                         )}
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${executionColor[item.execution_type]}`}>{item.execution_type}</span>
                         <span className="text-xs text-amber-400 font-bold">{(item.qty * item.unit_price).toLocaleString('ar-EG')} ج.م</span>
                       </div>
                       <button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-300 text-xs transition">✕ حذف</button>
@@ -465,6 +487,14 @@ export default function NewOrderPage() {
           <div className="bg-[#111927] rounded-2xl border border-white/5 p-5">
             <h2 className="text-sm font-bold text-amber-400 mb-4">📋 تفاصيل الطلب</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {items.length === 0 && (
+                <div className="sm:col-span-2">
+                  <label className="block text-xs text-gray-500 mb-1">نوع التنفيذ</label>
+                  <select value={form.execution_type} onChange={e => set('execution_type', e.target.value)} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50">
+                    {executionTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <label className="block text-xs text-gray-500 mb-1">تاريخ التسليم المتوقع *</label>
                 <input type="date" value={form.expected_delivery} onChange={e => set('expected_delivery', e.target.value)} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" />

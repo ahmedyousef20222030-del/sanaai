@@ -24,12 +24,12 @@ const TABS: Tab[] = [
 export default function OrderTabs({ tabs }: OrderTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>('details')
 
-  // نعرض بس التابات اللي فعلاً معدّاة من الأب
   const visibleTabs = TABS.filter(t => tabs[t.id] !== undefined)
+
+  if (visibleTabs.length === 0) return null
 
   return (
     <div className="w-full">
-      {/* Tab Navigation */}
       <div className="flex gap-3 overflow-x-auto pb-2 border-b border-white/5 mb-6">
         {visibleTabs.map(tab => (
           <button
@@ -47,10 +47,9 @@ export default function OrderTabs({ tabs }: OrderTabsProps) {
         ))}
       </div>
 
-      {/* Tab Content */}
       <div>
         {Object.entries(tabs).map(([tabId, content]) => (
-          activeTab === tabId && <div key={tabId}>{content}</div>
+          activeTab === (tabId as TabId) && <div key={tabId}>{content}</div>
         ))}
       </div>
     </div>
