@@ -22,13 +22,25 @@ const sectorColor: Record<string, string> = {
   'أخرى':               'bg-gray-500/20 text-gray-400 border-gray-500/30',
 }
 
+const emptyForm = { name: '', phone: '', sector: 'مدارس', city: '' }
+
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+
+  // إضافة عميل جديد
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', phone: '', sector: 'مدارس', city: '' })
+  const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
+
+  // تعديل عميل
+  const [editingClient, setEditingClient] = useState<Client | null>(null)
+  const [editForm, setEditForm] = useState(emptyForm)
+  const [updating, setUpdating] = useState(false)
+
+  // حذف عميل
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => { fetchClients() }, [])
 
@@ -96,11 +108,71 @@ export default function ClientsPage() {
 
       setClients(c => [data, ...c])
       setShowForm(false)
-      setForm({ name: '', phone: '', sector: 'مدارس', city: '' })
+      setForm(emptyForm)
     } catch (err: any) {
       alert(`خطأ في الحفظ: ${err.message}`)
     } finally {
       setSaving(false)
+    }
+  }
+
+  function openEdit(c: Client) {
+    setEditingClient(c)
+    setEditForm({ name: c.name || '', phone: c.phone || '', sector: c.sector || 'مدارس', city: c.city || '' })
+  }
+
+  function closeEdit() {
+    setEditingClient(null)
+    setEditForm(emptyForm)
+  }
+
+  async function handleUpdate() {
+    if (!editingClient) return
+    if (!editForm.name || !editForm.phone) {
+      alert('الاسم والهاتف مطلوبان')
+      return
+    }
+    setUpdating(true)
+    try {
+      const { data, error: updateError } = await supabase
+        .from('clients')
+        .update({
+          name: editForm.name,
+          phone: editForm.phone,
+          sector: editForm.sector,
+          city: editForm.city,
+        })
+        .eq('id', editingClient.id)
+        .select()
+        .single()
+
+      if (updateError) throw updateError
+
+      setClients(list => list.map(c => (c.id === editingClient.id ? { ...c, ...data } : c)))
+      closeEdit()
+    } catch (err: any) {
+      alert(`خطأ في التعديل: ${err.message}`)
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('هل أنت متأكد من حذف هذا العميل؟ لا يمكن التراجع عن هذا الإجراء.')) return
+    setDeletingId(id)
+    try {
+      const { error: deleteError } = await supabase
+        .from('clients')
+        .delete()
+        .eq('id', id)
+
+      if (deleteError) throw deleteError
+
+      setClients(list => list.filter(c => c.id !== id))
+    } catch (err: any) {
+      alert(`خطأ في الحذف: ${err.message}`)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -146,6 +218,39 @@ export default function ClientsPage() {
         </div>
       )}
 
+      {/* مودال التعديل */}
+      {editingClient && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={closeEdit}>
+          <div className="bg-[#111927] rounded-2xl border border-amber-500/30 p-6 w-full max-w-2xl" dir="rtl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-sm font-bold text-amber-400 mb-4">تعديل بيانات العميل</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-gray-500">اسم العميل *</label>
+                <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-gray-500">رقم الهاتف *</label>
+                <input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-gray-500">القطاع</label>
+                <select value={editForm.sector} onChange={e => setEditForm(f => ({ ...f, sector: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none">
+                  {['مدارس', 'مطاعم وفنادق', 'شركات كوربوريت', 'حكومي', 'أفراد', 'أخرى'].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-gray-500">المدينة</label>
+                <input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={handleUpdate} disabled={updating} className="px-6 py-2 bg-amber-500 text-black font-bold rounded-lg text-sm hover:bg-amber-400 transition disabled:opacity-50">{updating ? 'جاري الحفظ...' : 'حفظ التعديلات'}</button>
+              <button onClick={closeEdit} className="px-6 py-2 border border-white/10 text-gray-400 rounded-lg text-sm hover:bg-white/5 transition">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="relative mb-6">
         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600">🔍</span>
         <input type="text" placeholder="بحث باسم العميل أو رقم الهاتف..." value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-[#111927] border border-white/10 rounded-xl px-11 py-3 text-sm text-white outline-none focus:border-amber-500/50 transition" />
@@ -159,12 +264,29 @@ export default function ClientsPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map(c => (
-            <div key={c.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all group">
+            <div key={c.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all group relative">
               <div className="flex items-start justify-between mb-4">
                 <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center font-black text-xl border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-black transition-all">
                   {c.name?.[0] || '?'}
                 </div>
-                <span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${sectorColor[c.sector] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>{c.sector}</span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${sectorColor[c.sector] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>{c.sector}</span>
+                  <button
+                    onClick={() => openEdit(c)}
+                    title="تعديل"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 text-gray-400 hover:bg-amber-500/20 hover:text-amber-400 transition text-xs"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={() => handleDelete(c.id)}
+                    disabled={deletingId === c.id}
+                    title="حذف"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 text-gray-400 hover:bg-red-500/20 hover:text-red-400 transition text-xs disabled:opacity-50"
+                  >
+                    {deletingId === c.id ? '...' : '🗑️'}
+                  </button>
+                </div>
               </div>
               <h3 className="font-bold text-white text-base mb-1 group-hover:text-amber-400 transition">{c.name}</h3>
               <p className="text-gray-500 text-xs mb-4 flex items-center gap-2">
