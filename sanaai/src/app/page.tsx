@@ -49,8 +49,8 @@ export default function LandingPage() {
   }
 
   const prices = {
-    monthly: { starter: '١٩٩', pro: '٣٩٩', ent: '٧٩٩', label: 'شهرياً' },
-    yearly:  { starter: '١٩١', pro: '٣٨٣', ent: '٧٦٧', label: 'شهرياً (يُدفع سنوياً)' },
+    monthly: { starter: '2000', pro: '4000', ent: '8000', label: 'شهرياً' },
+    yearly:  { starter: '20000', pro: '40000', ent: '80000', label: 'شهرياً (يُدفع سنوياً)' },
   }
   const p = prices[billing]
 
@@ -445,7 +445,7 @@ export default function LandingPage() {
 
       {/* CTA */}
       <section style={{ padding: '100px 60px', textAlign: 'center', background: 'linear-gradient(135deg, #0D1B2A, #132438)' }}>
-        <div style={{ color: '#C8963E', fontSize: 13, marginBottom: 16 }}>🚀 ابدأ الآن</div>
+        <div style={{ color: '#C8963E', fontSize: 13, marginBottom: 16 }}>🚀 ابدأ الآن و نظم مصنعك</div>
         <h2 style={{ fontSize: 48, fontWeight: 900, margin: '0 0 16px', fontFamily: "'Tajawal', sans-serif" }}>
           مصنعك يستحق <span style={{ color: '#C8963E' }}>نظاماً حقيقياً</span>
         </h2>
@@ -466,10 +466,10 @@ export default function LandingPage() {
       }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 900, color: '#C8963E', fontFamily: "'Tajawal', sans-serif" }}>صَنَاعي</div>
-          <div style={{ fontSize: 12, color: '#7A8A9E', marginTop: 4 }}>© ٢٠٢٥ صَنَاعي — تطوير أحمد يوسف · جميع الحقوق محفوظة</div>
+          <div style={{ fontSize: 12, color: '#7A8A9E', marginTop: 4 }}>© 2026 صَنَاعي — تطوير أحمد يوسف · جميع الحقوق محفوظة</div>
         </div>
         <div style={{ display: 'flex', gap: 24, fontSize: 13, color: '#7A8A9E' }}>
-          {['سياسة الخصوصية', 'الشروط والأحكام', 'تواصل معنا'].map(l => (
+          {['سياسة الخصوصية', 'الشروط والأحكام', 'تواصل معنا 01069936787'].map(l => (
             <a key={l} href="#" style={{ color: '#7A8A9E', textDecoration: 'none' }}>{l}</a>
           ))}
         </div>
