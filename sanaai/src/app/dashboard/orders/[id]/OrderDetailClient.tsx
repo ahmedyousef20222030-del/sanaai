@@ -57,13 +57,15 @@ export default function OrderDetailClient({ id }: { id: string }) {
             order_number,
             order_date,
             expected_delivery,
-            total_price,
+            total_amount,
             deposit_paid,
-            remaining,
-            notes,
+            remaining_amount,
             details,
-            design_url,
             attachments,
+            assigned_user_id,
+            users:assigned_user_id (
+              full_name
+            ),
             clients (
               name,
               phone,
@@ -86,15 +88,15 @@ export default function OrderDetailClient({ id }: { id: string }) {
         order_date: data.orders?.order_date || '',
         end_date: data.orders?.expected_delivery,
         final_status: data.final_status || 'بانتظار التنفيذ',
-        sales_rep: data.orders?.supervisor?.full_name || '—',
-        supervisor: data.orders?.supervisor?.full_name,
+        sales_rep: data.orders?.users?.full_name || '—',
+        supervisor: data.orders?.users?.full_name,
         address: data.orders?.clients?.address,
-        notes: data.orders?.notes,
-        total_price: data.orders?.total_price,
+        notes: data.orders?.details,
+        total_price: data.orders?.total_amount,
         paid: data.orders?.deposit_paid,
-        remaining: data.orders?.remaining,
+        remaining: data.orders?.remaining_amount,
         details: data.orders?.details,
-        design_link: data.orders?.design_url,
+        design_link: undefined,
         stage_design: data.stage_design || 'pending',
         stage_cut: data.stage_cut || 'pending',
         stage_sew: data.stage_sew || 'pending',
@@ -157,7 +159,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
       {/* Tabs */}
       <OrderTabs
-        children={{
+        tabs={{
           details: (
             <div className="space-y-6">
               {/* Financial Summary */}

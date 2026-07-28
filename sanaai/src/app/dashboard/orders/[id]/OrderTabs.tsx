@@ -11,7 +11,7 @@ interface Tab {
 }
 
 interface OrderTabsProps {
-  children: Record<TabId, React.ReactNode>
+  tabs: Record<TabId, React.ReactNode>
 }
 
 const TABS: Tab[] = [
@@ -20,7 +20,7 @@ const TABS: Tab[] = [
   { id: 'images', label: 'الصور والمعرض', icon: '🖼️' },
 ]
 
-export default function OrderTabs({ children }: OrderTabsProps) {
+export default function OrderTabs({ tabs }: OrderTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>('details')
 
   return (
@@ -45,7 +45,7 @@ export default function OrderTabs({ children }: OrderTabsProps) {
 
       {/* Tab Content */}
       <div>
-        {Object.entries(children).map(([tabId, content]) => (
+        {Object.entries(tabs).map(([tabId, content]) => (
           activeTab === tabId && <div key={tabId}>{content}</div>
         ))}
       </div>
