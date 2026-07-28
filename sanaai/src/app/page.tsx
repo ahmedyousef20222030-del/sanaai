@@ -466,7 +466,7 @@ export default function LandingPage() {
       }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 900, color: '#C8963E', fontFamily: "'Tajawal', sans-serif" }}>صَنَاعي</div>
-          <div style={{ fontSize: 12, color: '#7A8A9E', marginTop: 4 }}>© 2026 صَنَاعي — تطوير أحمد يوسف · جميع الحقوق محفوظة</div>
+          <div style={{ fontSize: 12, color: '#7A8A9E', marginTop: 4 }}>© 2026 صَنَاعي — تطوير حلول الويب بواسطة أحمد يوسف · جميع الحقوق محفوظة</div>
         </div>
         <div style={{ display: 'flex', gap: 24, fontSize: 13, color: '#7A8A9E' }}>
           {['سياسة الخصوصية', 'الشروط والأحكام', 'تواصل معنا 01069936787'].map(l => (
