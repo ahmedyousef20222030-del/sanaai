@@ -11,6 +11,11 @@ export default function ComplaintsPage() {
   const [form, setForm]             = useState({ complaint_type: '', description: '', priority: 'متوسط' })
   const [submitting, setSubmitting] = useState(false)
 
+  // --- تعديل شكوى موجودة ---
+  const [editingId, setEditingId]   = useState<string | null>(null)
+  const [editForm, setEditForm]     = useState({ complaint_type: '', description: '', priority: 'متوسط' })
+  const [editSubmitting, setEditSubmitting] = useState(false)
+
   // --- بحث العميل (بالاسم أو رقم الموبايل) ---
   const [clientQuery, setClientQuery]     = useState('')
   const [clientResults, setClientResults] = useState<any[]>([])
@@ -121,6 +126,42 @@ export default function ComplaintsPage() {
     await supabase.from('complaints').update({ status }).eq('id', id)
     setComplaints(c => c.map(x => x.id === id ? { ...x, status } : x))
     setSaving(null)
+  }
+
+  function startEdit(c: any) {
+    setEditingId(c.id)
+    setEditForm({
+      complaint_type: c.complaint_type || '',
+      description: c.description || '',
+      priority: c.priority || 'متوسط',
+    })
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditForm({ complaint_type: '', description: '', priority: 'متوسط' })
+  }
+
+  async function saveEdit(id: string) {
+    if (!editForm.complaint_type) { alert('العنوان مطلوب'); return }
+    setEditSubmitting(true)
+    const { data, error } = await supabase.from('complaints')
+      .update({
+        complaint_type: editForm.complaint_type,
+        description: editForm.description,
+        priority: editForm.priority,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('*, clients(name, phone), orders(order_number)')
+      .single()
+    if (!error && data) {
+      setComplaints(c => c.map(x => x.id === id ? data : x))
+      cancelEdit()
+    } else if (error) {
+      alert('خطأ في التعديل: ' + error.message)
+    }
+    setEditSubmitting(false)
   }
 
   async function handleAdd() {
@@ -308,53 +349,97 @@ export default function ComplaintsPage() {
         <div className="space-y-4">
           {complaints.map(c => (
             <div key={c.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-bold text-white text-sm">{c.complaint_type}</h3>
-                    {c.priority && (
-                      <span className={`text-[10px] font-bold ${priorityColor[c.priority]}`}>
-                        ● {c.priority}
-                      </span>
-                    )}
+              {editingId === c.id ? (
+                /* ---------- وضع التعديل ---------- */
+                <div className="space-y-3">
+                  <input
+                    value={editForm.complaint_type}
+                    onChange={e => setEditForm(f => ({ ...f, complaint_type: e.target.value }))}
+                    placeholder="عنوان الشكوى *"
+                    className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50" />
+                  <textarea
+                    value={editForm.description}
+                    onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="تفاصيل الشكوى..." rows={3}
+                    className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50 resize-none" />
+                  <select
+                    value={editForm.priority}
+                    onChange={e => setEditForm(f => ({ ...f, priority: e.target.value }))}
+                    className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/50">
+                    {['عالي', 'متوسط', 'منخفض'].map(p => <option key={p}>{p}</option>)}
+                  </select>
+                  <div className="flex gap-3">
+                    <button onClick={() => saveEdit(c.id)} disabled={editSubmitting}
+                      className="px-5 py-2 bg-amber-500 text-black font-bold rounded-lg text-sm disabled:opacity-50">
+                      {editSubmitting ? 'جاري الحفظ...' : 'حفظ التعديل'}
+                    </button>
+                    <button onClick={cancelEdit}
+                      className="px-5 py-2 border border-white/10 text-gray-400 rounded-lg text-sm hover:bg-white/5 transition">
+                      إلغاء
+                    </button>
                   </div>
-                  {c.clients?.name && (
-                    <p className="text-xs text-gray-500">
-                      {c.clients.name}{c.clients.phone ? ` - ${c.clients.phone}` : ''}
-                    </p>
-                  )}
-                  {c.orders?.order_number && (
-                    <p className="text-[10px] font-mono text-amber-400">{c.orders.order_number}</p>
-                  )}
                 </div>
-                {c.status && (
-                  <span className={`text-xs px-3 py-1 rounded-full border ${statusColor[c.status]}`}>
-                    {c.status}
-                  </span>
-                )}
-              </div>
+              ) : (
+                /* ---------- وضع العرض ---------- */
+                <>
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-bold text-white text-sm">{c.complaint_type}</h3>
+                        {c.complaint_number && (
+                          <span className="text-[10px] font-mono text-gray-600">#{c.complaint_number}</span>
+                        )}
+                        {c.priority && (
+                          <span className={`text-[10px] font-bold ${priorityColor[c.priority]}`}>
+                            ● {c.priority}
+                          </span>
+                        )}
+                      </div>
+                      {c.clients?.name && (
+                        <p className="text-xs text-gray-500">
+                          {c.clients.name}{c.clients.phone ? ` - ${c.clients.phone}` : ''}
+                        </p>
+                      )}
+                      {c.orders?.order_number && (
+                        <p className="text-[10px] font-mono text-amber-400">{c.orders.order_number}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {c.status && (
+                        <span className={`text-xs px-3 py-1 rounded-full border ${statusColor[c.status]}`}>
+                          {c.status}
+                        </span>
+                      )}
+                      <button onClick={() => startEdit(c)}
+                        className="text-gray-500 hover:text-amber-400 text-xs p-1" title="تعديل">
+                        ✏️
+                      </button>
+                    </div>
+                  </div>
 
-              {c.description && (
-                <p className="text-xs text-gray-500 mb-4 leading-relaxed">{c.description}</p>
+                  {c.description && (
+                    <p className="text-xs text-gray-500 mb-4 leading-relaxed">{c.description}</p>
+                  )}
+
+                  <div className="flex gap-2">
+                    {statuses.map(st => (
+                      <button key={st}
+                        disabled={saving === c.id}
+                        onClick={() => updateStatus(c.id, st)}
+                        className={`flex-1 py-1.5 rounded-xl text-[10px] font-bold border transition
+                          ${c.status === st
+                            ? statusColor[st]
+                            : 'bg-white/5 text-gray-600 border-white/5 hover:border-white/10'}`}>
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="text-[10px] text-gray-700 mt-3">
+                    {new Date(c.created_at).toLocaleDateString('ar-EG')}
+                  </div>
+                </>
               )}
-
-              <div className="flex gap-2">
-                {statuses.map(st => (
-                  <button key={st}
-                    disabled={saving === c.id}
-                    onClick={() => updateStatus(c.id, st)}
-                    className={`flex-1 py-1.5 rounded-xl text-[10px] font-bold border transition
-                      ${c.status === st
-                        ? statusColor[st]
-                        : 'bg-white/5 text-gray-600 border-white/5 hover:border-white/10'}`}>
-                    {st}
-                  </button>
-                ))}
-              </div>
-
-              <div className="text-[10px] text-gray-700 mt-3">
-                {new Date(c.created_at).toLocaleDateString('ar-EG')}
-              </div>
             </div>
           ))}
         </div>
