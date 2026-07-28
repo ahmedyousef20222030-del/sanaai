@@ -44,7 +44,7 @@ const emptyForm = { name: '', phone: '', sector: 'مدارس', city: '' }
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
-  const [orderCounts, setOrderCounts] = useState<Record<string, number>>({})
+  const [orderStats, setOrderStats] = useState<Record<string, { count: number; total: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -77,29 +77,31 @@ export default function ClientsPage() {
       setClients([])
     } else {
       setClients(data || [])
-      fetchOrderCounts((data || []).map(c => c.id))
+      fetchOrderStats((data || []).map(c => c.id))
     }
     setLoading(false)
   }
 
-  async function fetchOrderCounts(clientIds: string[]) {
+  async function fetchOrderStats(clientIds: string[]) {
     if (clientIds.length === 0) return
     const { data, error } = await supabase
       .from('orders')
-      .select('client_id')
+      .select('client_id, total_amount')
       .in('client_id', clientIds)
 
     if (error) {
-      console.error('Error loading order counts:', error.message)
+      console.error('Error loading order stats:', error.message)
       return
     }
 
-    const counts: Record<string, number> = {}
+    const stats: Record<string, { count: number; total: number }> = {}
     for (const row of data || []) {
       if (!row.client_id) continue
-      counts[row.client_id] = (counts[row.client_id] || 0) + 1
+      if (!stats[row.client_id]) stats[row.client_id] = { count: 0, total: 0 }
+      stats[row.client_id].count += 1
+      stats[row.client_id].total += Number(row.total_amount || 0)
     }
-    setOrderCounts(counts)
+    setOrderStats(stats)
   }
 
   const filtered = clients.filter(c =>
@@ -394,8 +396,8 @@ export default function ClientsPage() {
                 <span>📞 {c.phone}</span><span className="text-gray-700">|</span><span>📍 {c.city || 'غير محدد'}</span>
               </p>
               <div className="flex justify-between items-center text-xs border-t border-white/5 pt-4 bg-white/[0.02] -mx-5 -mb-5 px-5 py-3 rounded-b-2xl">
-                <div className="text-center"><div className="text-gray-600 mb-1">الطلبات</div><div className="text-white font-bold">{orderCounts[c.id] ?? c.total_orders ?? 0}</div></div>
-                <div className="text-center"><div className="text-gray-600 mb-1">إجمالي المبيعات</div><div className="text-amber-400 font-bold">{Number(c.total_spent || 0).toLocaleString('ar-EG')} ج.م</div></div>
+                <div className="text-center"><div className="text-gray-600 mb-1">الطلبات</div><div className="text-white font-bold">{orderStats[c.id]?.count ?? c.total_orders ?? 0}</div></div>
+                <div className="text-center"><div className="text-gray-600 mb-1">إجمالي المبيعات</div><div className="text-amber-400 font-bold">{Number(orderStats[c.id]?.total ?? c.total_spent ?? 0).toLocaleString('ar-EG')} ج.م</div></div>
                 <div className="text-center"><div className="text-gray-600 mb-1">التقييم</div><div className="text-yellow-400 flex justify-center">{'⭐'.repeat(c.rating || 0)}</div></div>
               </div>
             </div>
