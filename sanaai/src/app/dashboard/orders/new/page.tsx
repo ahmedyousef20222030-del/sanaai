@@ -33,6 +33,7 @@ export default function NewOrderPage() {
   const [clientMode, setClientMode] = useState<'select' | 'new'>('select')
   const [newClientName, setNewClientName] = useState('')
   const [newClientPhone, setNewClientPhone] = useState('')
+  const [newClientAddress, setNewClientAddress] = useState('')
   const [customSector, setCustomSector] = useState('')
   const [items, setItems] = useState<OrderItem[]>([])
   const [showInvoice, setShowInvoice] = useState(false)
@@ -156,6 +157,7 @@ export default function NewOrderPage() {
             tenant_id: me.tenant_id,
             name: newClientName.trim(),
             phone: newClientPhone.trim() || null,
+            address: newClientAddress.trim() || null,
             sector: effectiveSector,
           })
           .select('id').single()
@@ -392,6 +394,10 @@ export default function NewOrderPage() {
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">رقم الهاتف</label>
                     <input value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} placeholder="01012345678" className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">العنوان</label>
+                    <input value={newClientAddress} onChange={e => setNewClientAddress(e.target.value)} placeholder="اكتب عنوان العميل" className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" />
                   </div>
                 </>
               )}
