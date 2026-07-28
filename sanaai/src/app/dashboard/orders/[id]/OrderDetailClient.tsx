@@ -75,7 +75,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
         `
         )
         .eq('tenant_id', me.tenant_id)
-        .eq('id', id)
+        .eq('order_id', id)
         .single()
 
       if (error) throw error
