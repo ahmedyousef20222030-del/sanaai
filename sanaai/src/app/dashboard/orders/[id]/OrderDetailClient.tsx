@@ -16,12 +16,17 @@ interface ProductionOrder {
   sales_rep: string
   supervisor?: string
   address?: string
+  city?: string
   notes?: string
   total_price?: number
   paid?: number
   remaining?: number
   details?: string
   design_link?: string
+  order_number?: string
+  sector?: string
+  quantity?: number
+  week_number?: number
   stage_design: string
   stage_cut: string
   stage_sew: string
@@ -29,7 +34,21 @@ interface ProductionOrder {
   stage_pack: string
   updated_at: string
   tenant_id: string
+  order_id: string
   attachments?: string[]
+}
+
+const statusColor: Record<string, string> = {
+  'جديد':      'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  'قيد المعالجة': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  'محلول':     'bg-green-500/20 text-green-400 border-green-500/30',
+  'مغلق':      'bg-gray-500/20 text-gray-400 border-gray-500/30',
+}
+
+const priorityColor: Record<string, string> = {
+  'عالي':   'text-red-400',
+  'متوسط':  'text-amber-400',
+  'منخفض':  'text-green-400',
 }
 
 export default function OrderDetailClient({ id }: { id: string }) {
@@ -37,6 +56,9 @@ export default function OrderDetailClient({ id }: { id: string }) {
   const [order, setOrder] = useState<ProductionOrder | null>(null)
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
+
+  const [complaints, setComplaints] = useState<any[]>([])
+  const [complaintsLoading, setComplaintsLoading] = useState(true)
 
   useEffect(() => {
     loadData()
@@ -54,6 +76,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
           `
           *,
           orders!order_id (
+            id,
             order_number,
             order_date,
             expected_delivery,
@@ -61,6 +84,9 @@ export default function OrderDetailClient({ id }: { id: string }) {
             deposit_paid,
             remaining_amount,
             details,
+            sector,
+            quantity,
+            week_number,
             attachments,
             assigned_user_id,
             users:assigned_user_id (
@@ -69,7 +95,8 @@ export default function OrderDetailClient({ id }: { id: string }) {
             clients (
               name,
               phone,
-              address
+              address,
+              city
             )
           )
         `
@@ -83,6 +110,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
       const mapped: ProductionOrder = {
         id: data.id,
+        order_id: id,
         customer_name: data.orders?.clients?.name || '—',
         phone: data.orders?.clients?.phone,
         order_date: data.orders?.order_date || '',
@@ -91,12 +119,17 @@ export default function OrderDetailClient({ id }: { id: string }) {
         sales_rep: data.orders?.users?.full_name || '—',
         supervisor: data.orders?.users?.full_name,
         address: data.orders?.clients?.address,
+        city: data.orders?.clients?.city,
         notes: data.orders?.details,
         total_price: data.orders?.total_amount,
         paid: data.orders?.deposit_paid,
         remaining: data.orders?.remaining_amount,
         details: data.orders?.details,
         design_link: undefined,
+        order_number: data.orders?.order_number,
+        sector: data.orders?.sector,
+        quantity: data.orders?.quantity,
+        week_number: data.orders?.week_number,
         stage_design: data.stage_design || 'pending',
         stage_cut: data.stage_cut || 'pending',
         stage_sew: data.stage_sew || 'pending',
@@ -108,12 +141,25 @@ export default function OrderDetailClient({ id }: { id: string }) {
       }
 
       setOrder(mapped)
+      loadComplaints(me.tenant_id)
     } catch (err) {
       console.error('خطأ:', err)
       setFetchError(err instanceof Error ? err.message : 'خطأ في جلب البيانات')
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadComplaints(tenantId: string) {
+    setComplaintsLoading(true)
+    const { data } = await supabase
+      .from('complaints')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('order_id', id)
+      .order('created_at', { ascending: false })
+    setComplaints(data || [])
+    setComplaintsLoading(false)
   }
 
   if (loading) {
@@ -147,7 +193,10 @@ export default function OrderDetailClient({ id }: { id: string }) {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black text-white mb-2">طلب</h1>
-          <p className="text-sm text-gray-400">{order.customer_name}</p>
+          <p className="text-sm text-gray-400">
+            {order.customer_name}
+            {order.order_number && <span className="text-[#D4A843] font-mono mr-2">· {order.order_number}</span>}
+          </p>
         </div>
         <button
           onClick={() => router.back()}
@@ -194,6 +243,16 @@ export default function OrderDetailClient({ id }: { id: string }) {
                     <p className="text-white font-semibold">{order.phone || '—'}</p>
                   </div>
                   <div>
+                    <p className="text-xs text-gray-500 mb-1">العنوان</p>
+                    <p className="text-white font-semibold">
+                      {order.address || '—'}{order.city ? ` - ${order.city}` : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">مندوب المبيعات</p>
+                    <p className="text-white font-semibold">{order.sales_rep}</p>
+                  </div>
+                  <div>
                     <p className="text-xs text-gray-500 mb-1">تاريخ الطلب</p>
                     <p className="text-white font-semibold">{order.order_date?.split('T')[0] || '—'}</p>
                   </div>
@@ -201,6 +260,18 @@ export default function OrderDetailClient({ id }: { id: string }) {
                     <p className="text-xs text-gray-500 mb-1">التسليم المتوقع</p>
                     <p className="text-white font-semibold">{order.end_date?.split('T')[0] || '—'}</p>
                   </div>
+                  {order.sector && (
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">القطاع</p>
+                      <p className="text-white font-semibold">{order.sector}</p>
+                    </div>
+                  )}
+                  {order.quantity !== undefined && order.quantity !== null && (
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">الكمية</p>
+                      <p className="text-white font-semibold">{order.quantity}</p>
+                    </div>
+                  )}
                 </div>
                 {order.notes && (
                   <div className="pt-4 border-t border-white/5">
@@ -249,6 +320,47 @@ export default function OrderDetailClient({ id }: { id: string }) {
           ),
 
           images: <OrderImageGallery orderId={id} tenantId={order.tenant_id} canEdit={true} legacyAttachments={order.attachments || []} />,
+
+          complaints: (
+            <div className="space-y-4">
+              {complaintsLoading ? (
+                <div className="text-center py-12 text-gray-600 text-sm">جاري التحميل...</div>
+              ) : complaints.length === 0 ? (
+                <div className="text-center py-12 text-gray-600 text-sm">لا توجد شكاوى مرتبطة بهذا الطلب</div>
+              ) : (
+                complaints.map(c => (
+                  <div key={c.id} className="bg-[#111318] border border-white/5 rounded-lg p-5">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-bold text-white text-sm">{c.complaint_type}</h3>
+                          {c.complaint_number && (
+                            <span className="text-[10px] font-mono text-gray-600">#{c.complaint_number}</span>
+                          )}
+                          {c.priority && (
+                            <span className={`text-[10px] font-bold ${priorityColor[c.priority]}`}>
+                              ● {c.priority}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {c.status && (
+                        <span className={`text-xs px-3 py-1 rounded-full border ${statusColor[c.status]}`}>
+                          {c.status}
+                        </span>
+                      )}
+                    </div>
+                    {c.description && (
+                      <p className="text-xs text-gray-500 leading-relaxed mb-2">{c.description}</p>
+                    )}
+                    <div className="text-[10px] text-gray-700">
+                      {new Date(c.created_at).toLocaleDateString('ar-EG')}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ),
         }}
       />
     </div>

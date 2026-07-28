@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-type TabId = 'details' | 'production' | 'images'
+type TabId = 'details' | 'production' | 'images' | 'complaints'
 
 interface Tab {
   id: TabId
@@ -11,23 +11,27 @@ interface Tab {
 }
 
 interface OrderTabsProps {
-  tabs: Record<TabId, React.ReactNode>
+  tabs: Partial<Record<TabId, React.ReactNode>>
 }
 
 const TABS: Tab[] = [
   { id: 'details', label: 'تفاصيل الطلب', icon: '📋' },
   { id: 'production', label: 'مراحل الإنتاج', icon: '🏭' },
   { id: 'images', label: 'الصور والمعرض', icon: '🖼️' },
+  { id: 'complaints', label: 'الشكاوى', icon: '📢' },
 ]
 
 export default function OrderTabs({ tabs }: OrderTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>('details')
 
+  // نعرض بس التابات اللي فعلاً معدّاة من الأب
+  const visibleTabs = TABS.filter(t => tabs[t.id] !== undefined)
+
   return (
     <div className="w-full">
       {/* Tab Navigation */}
       <div className="flex gap-3 overflow-x-auto pb-2 border-b border-white/5 mb-6">
-        {TABS.map(tab => (
+        {visibleTabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
