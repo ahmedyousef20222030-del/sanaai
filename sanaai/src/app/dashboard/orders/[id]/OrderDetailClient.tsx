@@ -51,6 +51,18 @@ const priorityColor: Record<string, string> = {
   'منخفض':  'text-green-400',
 }
 
+const sourceLabel: Record<string, string> = {
+  inventory: 'من المخزون',
+  purchase: 'طلب شراء',
+  purchase_order: 'طلب شراء',
+}
+
+const sourceColor: Record<string, string> = {
+  inventory: 'bg-green-500/20 text-green-400 border-green-500/30',
+  purchase: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  purchase_order: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+}
+
 export default function OrderDetailClient({ id }: { id: string }) {
   const router = useRouter()
   const [order, setOrder] = useState<ProductionOrder | null>(null)
@@ -59,6 +71,9 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
   const [complaints, setComplaints] = useState<any[]>([])
   const [complaintsLoading, setComplaintsLoading] = useState(true)
+
+  const [items, setItems] = useState<any[]>([])
+  const [itemsLoading, setItemsLoading] = useState(true)
 
   useEffect(() => {
     loadData()
@@ -142,6 +157,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
       setOrder(mapped)
       loadComplaints(me.tenant_id)
+      loadItems(me.tenant_id)
     } catch (err) {
       console.error('خطأ:', err)
       setFetchError(err instanceof Error ? err.message : 'خطأ في جلب البيانات')
@@ -160,6 +176,18 @@ export default function OrderDetailClient({ id }: { id: string }) {
       .order('created_at', { ascending: false })
     setComplaints(data || [])
     setComplaintsLoading(false)
+  }
+
+  async function loadItems(tenantId: string) {
+    setItemsLoading(true)
+    const { data } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('order_id', id)
+      .order('created_at', { ascending: true })
+    setItems(data || [])
+    setItemsLoading(false)
   }
 
   if (loading) {
@@ -277,6 +305,53 @@ export default function OrderDetailClient({ id }: { id: string }) {
                   <div className="pt-4 border-t border-white/5">
                     <p className="text-xs text-gray-500 mb-2">الملاحظات</p>
                     <p className="text-sm text-gray-300">{order.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* الأصناف المطلوبة */}
+              <div className="bg-[#111318] border border-white/5 rounded-lg p-6">
+                <p className="text-xs text-gray-500 mb-4">الأصناف المطلوبة {items.length > 0 && `(${items.length})`}</p>
+                {itemsLoading ? (
+                  <div className="text-center py-8 text-gray-600 text-sm">جاري التحميل...</div>
+                ) : items.length === 0 ? (
+                  <div className="text-center py-8 text-gray-600 text-sm">لا توجد أصناف مسجلة لهذا الطلب</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-right text-xs text-gray-500 border-b border-white/5">
+                          <th className="pb-3 font-normal">الصنف</th>
+                          <th className="pb-3 font-normal">المقاس</th>
+                          <th className="pb-3 font-normal">اللون</th>
+                          <th className="pb-3 font-normal">الكمية</th>
+                          <th className="pb-3 font-normal">سعر الوحدة</th>
+                          <th className="pb-3 font-normal">الإجمالي</th>
+                          <th className="pb-3 font-normal">المصدر</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map(it => (
+                          <tr key={it.id} className="border-b border-white/5 last:border-0">
+                            <td className="py-3 text-white font-semibold">{it.name}</td>
+                            <td className="py-3 text-gray-300">{it.size || '—'}</td>
+                            <td className="py-3 text-gray-300">{it.color || '—'}</td>
+                            <td className="py-3 text-gray-300">{it.quantity}</td>
+                            <td className="py-3 text-gray-300">{Number(it.unit_price)?.toLocaleString()} ج.م</td>
+                            <td className="py-3 text-[#D4A843] font-bold">
+                              {Number(it.total_price ?? it.unit_price * it.quantity)?.toLocaleString()} ج.م
+                            </td>
+                            <td className="py-3">
+                              {it.source ? (
+                                <span className={`text-[10px] px-2 py-1 rounded-full border ${sourceColor[it.source] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
+                                  {sourceLabel[it.source] || it.source}
+                                </span>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
