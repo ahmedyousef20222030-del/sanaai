@@ -22,6 +22,24 @@ const sectorColor: Record<string, string> = {
   'أخرى':               'bg-gray-500/20 text-gray-400 border-gray-500/30',
 }
 
+type Order = {
+  id: string
+  order_number: string
+  status: string
+  delivery_status: string
+  quantity: number
+  total_amount: number
+  order_date: string
+}
+
+const orderStatusColor: Record<string, string> = {
+  'جديد':          'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  'قيد التنفيذ':    'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  'جاهز':           'bg-purple-500/20 text-purple-300 border-purple-500/30',
+  'تم التسليم':     'bg-green-500/20 text-green-300 border-green-500/30',
+  'ملغي':           'bg-red-500/20 text-red-300 border-red-500/30',
+}
+
 const emptyForm = { name: '', phone: '', sector: 'مدارس', city: '' }
 
 export default function ClientsPage() {
@@ -38,6 +56,8 @@ export default function ClientsPage() {
   const [editingClient, setEditingClient] = useState<Client | null>(null)
   const [editForm, setEditForm] = useState(emptyForm)
   const [updating, setUpdating] = useState(false)
+  const [clientOrders, setClientOrders] = useState<Order[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(false)
 
   // حذف عميل
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -119,11 +139,32 @@ export default function ClientsPage() {
   function openEdit(c: Client) {
     setEditingClient(c)
     setEditForm({ name: c.name || '', phone: c.phone || '', sector: c.sector || 'مدارس', city: c.city || '' })
+    fetchClientOrders(c.id)
   }
 
   function closeEdit() {
     setEditingClient(null)
     setEditForm(emptyForm)
+    setClientOrders([])
+  }
+
+  async function fetchClientOrders(clientId: string) {
+    setOrdersLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, order_number, status, delivery_status, quantity, total_amount, order_date')
+        .eq('client_id', clientId)
+        .order('order_date', { ascending: false })
+
+      if (error) throw error
+      setClientOrders(data || [])
+    } catch (err: any) {
+      console.error('Error loading client orders:', err.message)
+      setClientOrders([])
+    } finally {
+      setOrdersLoading(false)
+    }
   }
 
   async function handleUpdate() {
@@ -243,6 +284,44 @@ export default function ClientsPage() {
                 <input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none" />
               </div>
             </div>
+
+            {/* طلبات العميل */}
+            <div className="mt-6 pt-5 border-t border-white/5">
+              <h3 className="text-sm font-bold text-amber-400 mb-3">
+                طلبات العميل {clientOrders.length > 0 && <span className="text-gray-500 font-normal">({clientOrders.length})</span>}
+              </h3>
+
+              {ordersLoading ? (
+                <div className="flex items-center gap-2 text-gray-500 text-xs py-4">
+                  <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                  جاري جلب الطلبات...
+                </div>
+              ) : clientOrders.length === 0 ? (
+                <p className="text-gray-600 text-xs py-4">لا يوجد طلبات لهذا العميل</p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto flex flex-col gap-2 pr-1">
+                  {clientOrders.map(o => (
+                    <div key={o.id} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-white text-sm font-bold">طلب رقم {o.order_number}</span>
+                        <span className="text-gray-500 text-[11px]">
+                          {o.order_date ? new Date(o.order_date).toLocaleDateString('ar-EG') : 'بدون تاريخ'} • الكمية: {o.quantity ?? 0}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${orderStatusColor[o.status] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
+                          {o.status}
+                        </span>
+                        <span className="text-amber-400 text-xs font-bold">
+                          {Number(o.total_amount || 0).toLocaleString('ar-EG')} ج.م
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3 mt-6">
               <button onClick={handleUpdate} disabled={updating} className="px-6 py-2 bg-amber-500 text-black font-bold rounded-lg text-sm hover:bg-amber-400 transition disabled:opacity-50">{updating ? 'جاري الحفظ...' : 'حفظ التعديلات'}</button>
               <button onClick={closeEdit} className="px-6 py-2 border border-white/10 text-gray-400 rounded-lg text-sm hover:bg-white/5 transition">إلغاء</button>
