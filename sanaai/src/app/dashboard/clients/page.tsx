@@ -43,6 +43,12 @@ const orderStatusColor: Record<string, string> = {
 const emptyForm = { name: '', phone: '', sector: 'مدارس', city: '' }
 
 export default function ClientsPage() {
+  // هوية المصنع (tenant) الحالي - بيتحمل مرة واحدة عند فتح الصفحة
+  // وبيتم استخدامه كفلتر صريح في كل استعلام، وده اللي بيمنع أي عميل
+  // من مصنع تاني إنه يظهر أو يتعدل حتى لو الـ RLS اتظبط غلط
+  const [tenantId, setTenantId] = useState<string | null>(null)
+  const [initError, setInitError] = useState<string | null>(null)
+
   const [clients, setClients] = useState<Client[]>([])
   const [orderStats, setOrderStats] = useState<Record<string, { count: number; total: number }>>({})
   const [loading, setLoading] = useState(true)
@@ -63,50 +69,7 @@ export default function ClientsPage() {
   // حذف عميل
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  useEffect(() => { fetchClients() }, [])
-
-  async function fetchClients() {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('total_spent', { ascending: false })
-
-    if (error) {
-      console.error('Error loading clients:', error.message)
-      setClients([])
-    } else {
-      setClients(data || [])
-      fetchOrderStats((data || []).map(c => c.id))
-    }
-    setLoading(false)
-  }
-
-  async function fetchOrderStats(clientIds: string[]) {
-    if (clientIds.length === 0) return
-    const { data, error } = await supabase
-      .from('orders')
-      .select('client_id, total_amount')
-      .in('client_id', clientIds)
-
-    if (error) {
-      console.error('Error loading order stats:', error.message)
-      return
-    }
-
-    const stats: Record<string, { count: number; total: number }> = {}
-    for (const row of data || []) {
-      if (!row.client_id) continue
-      if (!stats[row.client_id]) stats[row.client_id] = { count: 0, total: 0 }
-      stats[row.client_id].count += 1
-      stats[row.client_id].total += Number(row.total_amount || 0)
-    }
-    setOrderStats(stats)
-  }
-
-  const filtered = clients.filter(c =>
-    !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search)
-  )
+  useEffect(() => { init() }, [])
 
   async function getMyTenantId(): Promise<string> {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -130,15 +93,84 @@ export default function ClientsPage() {
     return me.tenant_id
   }
 
+  // بيتنفذ مرة واحدة عند فتح الصفحة: بيجيب tenant_id الحالي الأول،
+  // وبعدين يجيب العملاء بتوع نفس المصنع بس
+  async function init() {
+    setLoading(true)
+    setInitError(null)
+    try {
+      const tid = await getMyTenantId()
+      setTenantId(tid)
+      await fetchClients(tid)
+    } catch (err: any) {
+      console.error('Error initializing tenant:', err.message)
+      setInitError(err.message)
+      setClients([])
+      setLoading(false)
+    }
+  }
+
+  // دايمًا بتاخد tenantId كـ parameter صريح بدل ما تعتمد على الـ state
+  // (عشان تتجنب مشاكل الـ stale closure وتضمن إنها متفلترة صح من أول استدعاء)
+  async function fetchClients(tid: string) {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('tenant_id', tid)
+      .order('total_spent', { ascending: false })
+
+    if (error) {
+      console.error('Error loading clients:', error.message)
+      setClients([])
+    } else {
+      setClients(data || [])
+      fetchOrderStats((data || []).map(c => c.id), tid)
+    }
+    setLoading(false)
+  }
+
+  async function fetchOrderStats(clientIds: string[], tid: string) {
+    if (clientIds.length === 0) {
+      setOrderStats({})
+      return
+    }
+    const { data, error } = await supabase
+      .from('orders')
+      .select('client_id, total_amount')
+      .eq('tenant_id', tid)
+      .in('client_id', clientIds)
+
+    if (error) {
+      console.error('Error loading order stats:', error.message)
+      return
+    }
+
+    const stats: Record<string, { count: number; total: number }> = {}
+    for (const row of data || []) {
+      if (!row.client_id) continue
+      if (!stats[row.client_id]) stats[row.client_id] = { count: 0, total: 0 }
+      stats[row.client_id].count += 1
+      stats[row.client_id].total += Number(row.total_amount || 0)
+    }
+    setOrderStats(stats)
+  }
+
+  const filtered = clients.filter(c =>
+    !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search)
+  )
+
   async function handleAdd() {
     if (!form.name || !form.phone) {
       alert('الاسم والهاتف مطلوبان')
       return
     }
+    if (!tenantId) {
+      alert('تعذر تحديد هوية المصنع، برجاء إعادة تحميل الصفحة')
+      return
+    }
     setSaving(true)
     try {
-      const tenantId = await getMyTenantId()
-
       const { data, error: insertError } = await supabase
         .from('clients')
         .insert({
@@ -173,11 +205,16 @@ export default function ClientsPage() {
   }
 
   async function fetchClientOrders(clientId: string) {
+    if (!tenantId) {
+      setClientOrders([])
+      return
+    }
     setOrdersLoading(true)
     try {
       const { data, error } = await supabase
         .from('orders')
         .select('id, order_number, status, delivery_status, quantity, total_amount, order_date')
+        .eq('tenant_id', tenantId)
         .eq('client_id', clientId)
         .order('order_date', { ascending: false })
 
@@ -197,6 +234,10 @@ export default function ClientsPage() {
       alert('الاسم والهاتف مطلوبان')
       return
     }
+    if (!tenantId) {
+      alert('تعذر تحديد هوية المصنع، برجاء إعادة تحميل الصفحة')
+      return
+    }
     setUpdating(true)
     try {
       const { data, error: updateError } = await supabase
@@ -208,6 +249,7 @@ export default function ClientsPage() {
           city: editForm.city,
         })
         .eq('id', editingClient.id)
+        .eq('tenant_id', tenantId) // يمنع تعديل عميل مش تابع لنفس المصنع
         .select()
         .single()
 
@@ -223,6 +265,10 @@ export default function ClientsPage() {
   }
 
   async function handleDelete(id: string) {
+    if (!tenantId) {
+      alert('تعذر تحديد هوية المصنع، برجاء إعادة تحميل الصفحة')
+      return
+    }
     if (!confirm('هل أنت متأكد من حذف هذا العميل؟ لا يمكن التراجع عن هذا الإجراء.')) return
     setDeletingId(id)
     try {
@@ -230,6 +276,7 @@ export default function ClientsPage() {
         .from('clients')
         .delete()
         .eq('id', id)
+        .eq('tenant_id', tenantId) // يمنع حذف عميل مش تابع لنفس المصنع
 
       if (deleteError) throw deleteError
 
@@ -248,10 +295,17 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-black text-white">🏢 إدارة العملاء</h1>
           <p className="text-sm text-gray-500 mt-1">إدارة قاعدة بيانات العملاء والمبيعات</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition text-sm shadow-lg shadow-amber-500/20">
+        <button onClick={() => setShowForm(!showForm)} disabled={!tenantId} className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition text-sm shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
           {showForm ? '❌ إغلاق' : '➕ عميل جديد'}
         </button>
       </div>
+
+      {initError && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl px-5 py-4 mb-6 flex items-center justify-between gap-4">
+          <span>⚠️ {initError}</span>
+          <button onClick={init} className="px-4 py-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-xs font-bold whitespace-nowrap transition">إعادة المحاولة</button>
+        </div>
+      )}
 
       {showForm && (
         <div className="bg-[#111927] rounded-2xl border border-amber-500/30 p-6 mb-6">
