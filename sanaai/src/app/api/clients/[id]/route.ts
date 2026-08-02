@@ -16,7 +16,7 @@ export async function GET(request: NextRequest, { params }: Props) {
 
     const { data, error } = await supabaseAdmin
       .from('clients')
-      .select('*')
+      .select('id, name, phone, sector, city, rating, total_orders, total_spent, tenant_id, created_at, updated_at')
       .eq('id', id)
       .eq('tenant_id', user.tenantId)
       .single()
@@ -42,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
       .update({ ...validated, updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('tenant_id', user.tenantId)
-      .select()
+      .select('id, name, phone, sector, city, rating, total_orders, total_spent, tenant_id, created_at, updated_at')
       .single()
 
     if (error || !data) throw new NotFoundError('Client')

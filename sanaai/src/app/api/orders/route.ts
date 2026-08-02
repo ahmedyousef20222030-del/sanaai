@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     // Build query with tenant filter
     let query = supabaseAdmin
       .from('orders')
-      .select('*, clients(name, phone, sector), assigned_user:users(full_name)', {
+      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments, clients(name, phone, sector), assigned_user:users(full_name)', {
         count: 'exact',
       })
       .eq('tenant_id', user.tenantId)
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('orders')
       .insert(orderData)
-      .select()
+      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments')
       .single()
 
     if (error) throw error

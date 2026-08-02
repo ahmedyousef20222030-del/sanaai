@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabaseAdmin
       .from('clients')
-      .select('*', { count: 'exact' })
+      .select('id, name, phone, sector, city, rating, total_orders, total_spent, tenant_id, created_at, updated_at', { count: 'exact' })
       .eq('tenant_id', user.tenantId)
       .order('total_spent', { ascending: false })
       .range(offset, offset + limit - 1)
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
         tenant_id: user.tenantId,
         created_by: user.id,
       })
-      .select()
+      .select('id, name, phone, sector, city, rating, total_orders, total_spent, tenant_id, created_at, updated_at')
       .single()
 
     if (error || !data) throw new NotFoundError('Client')

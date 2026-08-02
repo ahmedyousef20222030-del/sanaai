@@ -38,7 +38,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
       .from('production')
       .update(updateData)
       .eq('id', id)
-      .select()
+      .select('id, tenant_id, order_id, supervisor_id, worker_id, start_date, end_date, planned_qty, completed_qty, progress_pct, final_status, stage_design, stage_cut, stage_sew, stage_print, stage_pack, print_or_embroidery, overall_progress_pct, created_at, updated_at')
       .single()
 
     if (error || !data) {
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest, { params }: Props) {
 
     const { data, error } = await supabaseAdmin
       .from('production')
-      .select('*, orders(order_number, quantity)')
+      .select('id, tenant_id, order_id, supervisor_id, worker_id, start_date, end_date, planned_qty, completed_qty, progress_pct, final_status, stage_design, stage_cut, stage_sew, stage_print, stage_pack, print_or_embroidery, overall_progress_pct, created_at, updated_at, orders(id, order_number, quantity)')
       .eq('id', id)
       .single()
 

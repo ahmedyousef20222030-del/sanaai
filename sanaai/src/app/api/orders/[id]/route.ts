@@ -16,7 +16,7 @@ export async function GET(request: NextRequest, { params }: Props) {
 
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .select('*, clients(*), assigned_user:users(full_name)')
+      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments, clients(id, name, phone, sector, city, rating), assigned_user:users(id, full_name)')
       .eq('id', id)
       .eq('tenant_id', user.tenantId)
       .single()
@@ -42,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
       .update({ ...validated, updated_at: new Date().toISOString(), updated_by: user.id })
       .eq('id', id)
       .eq('tenant_id', user.tenantId)
-      .select()
+      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments')
       .single()
 
     if (error || !data) throw new NotFoundError('Order')
@@ -85,7 +85,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
       .update({ status: validated.status, notes: validated.notes, updated_at: new Date().toISOString(), updated_by: user.id })
       .eq('id', id)
       .eq('tenant_id', user.tenantId)
-      .select()
+      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments')
       .single()
 
     if (error || !data) throw new NotFoundError('Order')

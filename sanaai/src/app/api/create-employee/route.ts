@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
         },
         { onConflict: 'id' },
       )
-      .select()
+      .select('id, email, full_name, role, phone, tenant_id, department, job_title, start_date, monthly_target, target_type, is_active, can_edit_production, can_edit_orders, can_manage_sales, can_manage_users, can_view_clients, created_at, updated_at')
       .single()
 
     if (dbError) throw new ValidationError(dbError.message)
