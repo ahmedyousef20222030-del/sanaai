@@ -29,6 +29,7 @@ export default function ShowroomPage() {
   const [filter, setFilter]   = useState<FilterKey>('all')
   const [search, setSearch]   = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     name: '', size: 'M', color: '', current_stock: '0',
@@ -38,15 +39,41 @@ export default function ShowroomPage() {
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const { data: me } = await supabase.from('users').select('tenant_id').single()
-      setTenantId(me?.tenant_id)
-      
-      const { data } = await supabase.from('inventory')
-        .select('*')
-        .order('updated_at', { ascending: false })
-      
-      setItems(data || [])
-      setLoading(false)
+      setLoadError(null)
+
+      try {
+        // ── تحديد هوية المستخدم الحالي أولاً ──
+        const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
+        if (authError || !authUser) {
+          throw new Error('يجب تسجيل الدخول أولاً')
+        }
+
+        // ── جلب tenant_id الخاص بالمستخدم بالتحديد (مش أي صف عشوائي) ──
+        const { data: me, error: meError } = await supabase
+          .from('users')
+          .select('tenant_id')
+          .eq('id', authUser.id)
+          .single()
+
+        if (meError) throw new Error('تعذر تحديد بيانات المنشأة: ' + meError.message)
+        if (!me?.tenant_id) throw new Error('تعذر تحديد بيانات المنشأة الخاصة بالمستخدم')
+
+        setTenantId(me.tenant_id)
+
+        // ── جلب المخزون ──
+        const { data, error: itemsError } = await supabase
+          .from('inventory')
+          .select('*')
+          .order('updated_at', { ascending: false })
+
+        if (itemsError) throw new Error('تعذر تحميل بيانات المعروض: ' + itemsError.message)
+
+        setItems(data || [])
+      } catch (err: any) {
+        setLoadError(err.message || 'حدث خطأ أثناء تحميل البيانات')
+      } finally {
+        setLoading(false)
+      }
     }
     load()
   }, [])
@@ -94,6 +121,9 @@ export default function ShowroomPage() {
     if (!form.name.trim() || !form.selling_price) {
       alert('يرجى ملء اسم الموديل والسعر'); return
     }
+    if (!editItem && !tenantId) {
+      alert('تعذر تحديد بيانات المنشأة، برجاء إعادة تحميل الصفحة'); return
+    }
     setSaving(true)
 
     const payload = {
@@ -127,7 +157,8 @@ export default function ShowroomPage() {
 
   async function adjustQty(item: Item, delta: number) {
     const newQty = Math.max(0, item.current_stock + delta)
-    await supabase.from('inventory').update({ current_stock: newQty, updated_at: new Date().toISOString() }).eq('id', item.id)
+    const { error } = await supabase.from('inventory').update({ current_stock: newQty, updated_at: new Date().toISOString() }).eq('id', item.id)
+    if (error) { alert('تعذر تحديث الكمية: ' + error.message); return }
     setItems(prev => prev.map(p => p.id === item.id ? { ...p, current_stock: newQty } : p))
   }
 
@@ -144,6 +175,12 @@ export default function ShowroomPage() {
           ➕ نقل إنتاج جديد للرف
         </button>
       </div>
+
+      {loadError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 mb-6 text-sm text-red-400">
+          ⚠️ {loadError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {[
