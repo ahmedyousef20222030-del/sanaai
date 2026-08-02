@@ -184,7 +184,8 @@ export default function NewOrderPage() {
           delivery_status: 'في الموعد',
           execution_type: items.length === 0 ? form.execution_type : null,
         })
-        .select().single()
+        .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments')
+        .single()
 
       if (orderError) throw orderError
 
