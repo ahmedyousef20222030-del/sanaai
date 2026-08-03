@@ -82,7 +82,21 @@ export default function OrderDetailClient({ id }: { id: string }) {
   async function loadData() {
     setLoading(true)
     try {
-      const { data: me } = await supabase.from('users').select('tenant_id').single()
+      // 1) تأكد أولاً أن هناك مستخدماً مسجل الدخول فعلياً
+      const { data: authData, error: authError } = await supabase.auth.getUser()
+      if (authError) throw authError
+      if (!authData?.user) throw new Error('يجب تسجيل الدخول')
+
+      // 2) اجلب صف المستخدم من جدول users مرتبطاً صراحة بحساب المصادقة الحالي
+      //    ملاحظة: تأكد أن اسم العمود هنا (id) يطابق فعلياً العمود الذي يربط
+      //    جدول users بـ auth.users عندك (قد يكون id أو auth_id حسب تصميم قاعدة بياناتك)
+      const { data: me, error: meError } = await supabase
+        .from('users')
+        .select('tenant_id')
+        .eq('id', authData.user.id)
+        .single()
+
+      if (meError) throw meError
       if (!me?.tenant_id) throw new Error('بدون صلاحيات')
 
       const { data, error } = await supabase
