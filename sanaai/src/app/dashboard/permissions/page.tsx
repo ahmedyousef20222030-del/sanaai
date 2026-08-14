@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { ASSIGNABLE_PAGES, PAGE_SECTIONS } from '@/lib/pages-config'
+import { PAGE_LIST, PageKey } from '@/lib/pages'
 
 // ── تعريف الأدوار (متطابقة مع users_role_check في قاعدة البيانات) ──
 const roles: Record<string, string> = {
@@ -16,16 +16,43 @@ const roles: Record<string, string> = {
   employee: 'موظف',
 }
 
-// ── صلاحيات الصفحات الافتراضية المقترحة لكل دور (نقطة بداية فقط، قابلة للتعديل يدوياً بعد كده) ──
-// ⚠️ ده افتراض مبدئي مني بناءً على منطق الأدوار، عدّله زي ما يناسب شغلك
-const ROLE_DEFAULT_PAGES: Record<string, string[]> = {
-  admin:      ASSIGNABLE_PAGES.map(p => p.id),
-  sales:      ['orders', 'orders_new', 'clients', 'pipeline', 'showroom', 'invoices'],
-  production: ['suppliers', 'procurement', 'inventory', 'production', 'quality'],
-  design:     ['production', 'quality'],
-  shipping:   ['orders', 'shipping'],
-  hr:         ['employees'],
-  accountant: ['invoices', 'clients'],
+// ── الصلاحيات الدقيقة المتاحة (أعمدة boolean في جدول users) ──
+// دي بتتحكم في أفعال جوه الصفحة (تعديل/إدارة)، مش في عرض الصفحة نفسها
+type PermissionKey = 'can_edit_production' | 'can_edit_orders' | 'can_manage_sales' | 'can_manage_users' | 'can_view_clients'
+
+const PERMISSION_LABELS: Record<PermissionKey, string> = {
+  can_edit_production: '✏️ تعديل الإنتاج',
+  can_edit_orders: '📋 تعديل الطلبات',
+  can_manage_sales: '💰 إدارة المبيعات',
+  can_manage_users: '👤 إدارة المستخدمين',
+  can_view_clients: '👁️ عرض العملاء',
+}
+
+const PERMISSION_KEYS: PermissionKey[] = ['can_edit_production', 'can_edit_orders', 'can_manage_sales', 'can_manage_users', 'can_view_clients']
+
+// ── الصلاحيات الافتراضية المقترحة لكل دور (نقطة بداية فقط، قابلة للتعديل يدوياً بعد كده) ──
+const ROLE_DEFAULT_PERMISSIONS: Record<string, Record<PermissionKey, boolean>> = {
+  owner:      { can_edit_production: true,  can_edit_orders: true,  can_manage_sales: true,  can_manage_users: true,  can_view_clients: true  },
+  admin:      { can_edit_production: true,  can_edit_orders: true,  can_manage_sales: true,  can_manage_users: true,  can_view_clients: true  },
+  sales:      { can_edit_production: false, can_edit_orders: true,  can_manage_sales: true,  can_manage_users: false, can_view_clients: true  },
+  production: { can_edit_production: true,  can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+  design:     { can_edit_production: true,  can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+  shipping:   { can_edit_production: false, can_edit_orders: true,  can_manage_sales: false, can_manage_users: false, can_view_clients: true  },
+  hr:         { can_edit_production: false, can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+  accountant: { can_edit_production: false, can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: true  },
+  employee:   { can_edit_production: false, can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
+}
+
+// ── الصفحات الافتراضية المقترحة لكل دور (نقطة بداية فقط، قابلة للتعديل يدوياً بعد كده) ──
+const ROLE_DEFAULT_PAGES: Record<string, PageKey[]> = {
+  owner:      PAGE_LIST.map(p => p.key),
+  admin:      PAGE_LIST.map(p => p.key),
+  sales:      ['/dashboard/orders', '/dashboard/clients', '/dashboard/pipeline', '/dashboard/showroom', '/dashboard/invoices'],
+  production: ['/dashboard/production', '/dashboard/quality', '/dashboard/inventory', '/dashboard/suppliers', '/dashboard/procurement'],
+  design:     ['/dashboard/production', '/dashboard/quality'],
+  shipping:   ['/dashboard/orders', '/dashboard/shipping', '/dashboard/clients'],
+  hr:         ['/dashboard/employees'],
+  accountant: ['/dashboard/invoices', '/dashboard/clients'],
   employee:   [],
 }
 
@@ -44,6 +71,12 @@ type AppUser = {
   role: string
   is_active: boolean
   last_login_at: string | null
+  can_edit_production: boolean
+  can_edit_orders: boolean
+  can_manage_sales: boolean
+  can_manage_users: boolean
+  can_view_clients: boolean
+  allowed_pages: string[] | null
 }
 
 type ActivityLogEntry = {
@@ -55,17 +88,6 @@ type ActivityLogEntry = {
   created_at: string
   actor: { full_name: string } | null
 }
-
-type PagePermCell = { can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean }
-type PagePermMatrix = Record<string, Record<string, PagePermCell>>
-
-const EMPTY_CELL: PagePermCell = { can_view: false, can_create: false, can_edit: false, can_delete: false }
-const ACTIONS: { key: keyof PagePermCell; label: string }[] = [
-  { key: 'can_view',   label: 'عرض' },
-  { key: 'can_create', label: 'إضافة' },
-  { key: 'can_edit',   label: 'تعديل' },
-  { key: 'can_delete', label: 'حذف' },
-]
 
 // ── دالة موحّدة لجلب tenant_id بأمان (بدل تكرارها في كل مكان) ──
 async function getMyTenantId(): Promise<string> {
@@ -113,10 +135,9 @@ async function logUserActivity(action: string, entityLabel: string, oldValue: an
 }
 
 export default function PermissionsPage() {
-  const [activeTab, setActiveTab] = useState<'permissions' | 'employees'>('permissions')
+  const [activeTab, setActiveTab] = useState<'employees' | 'roles'>('roles')
 
   // ── هوية وصلاحية المستخدم الحالي (لازمة عشان نقفل الشاشة على غير الـ owner) ──
-  const [myId, setMyId] = useState<string | null>(null)
   const [myRole, setMyRole] = useState<string | null>(null)
   const [loadingMe, setLoadingMe] = useState(true)
   const isOwner = myRole === 'owner'
@@ -128,12 +149,6 @@ export default function PermissionsPage() {
   const [rolesError, setRolesError] = useState<string | null>(null)
   const [userSearch, setUserSearch] = useState('')
   const [userRoleFilter, setUserRoleFilter] = useState('all')
-
-  // ── حالة صلاحيات الصفحات (النظام الجديد) ──
-  const [pagePerms, setPagePerms] = useState<PagePermMatrix>({})
-  const [dirtyUsers, setDirtyUsers] = useState<Set<string>>(new Set())
-  const [savingPerms, setSavingPerms] = useState<string | null>(null)
-  const [expandedUserId, setExpandedUserId] = useState<string | null>(null)
 
   // ── حالة سجل تغييرات الصلاحيات ──
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([])
@@ -155,15 +170,14 @@ export default function PermissionsPage() {
   useEffect(() => {
     loadMe()
     loadUsers()
-    loadPagePermissions()
     loadEmployees()
     loadActivityLog()
   }, [])
 
-  // لو مستخدم مش owner لأي سبب لقى نفسه على تبويب الموظفين (state قديم، رابط مباشر...) رجّعه لتبويب الصلاحيات
+  // لو مستخدم مش owner لأي سبب لقى نفسه على تبويب الموظفين رجّعه لتبويب الصلاحيات
   useEffect(() => {
     if (!loadingMe && !isOwner && activeTab === 'employees') {
-      setActiveTab('permissions')
+      setActiveTab('roles')
     }
   }, [loadingMe, isOwner, activeTab])
 
@@ -172,7 +186,6 @@ export default function PermissionsPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      setMyId(user.id)
       const { data, error } = await supabase.from('users').select('role').eq('id', user.id).single()
       if (error) throw error
       setMyRole(data?.role || null)
@@ -189,7 +202,7 @@ export default function PermissionsPage() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, full_name, email, role, is_active, last_login_at')
+        .select('id, full_name, email, role, is_active, last_login_at, can_edit_production, can_edit_orders, can_manage_sales, can_manage_users, can_view_clients, allowed_pages')
         .order('full_name', { ascending: true })
       if (error) throw error
       setAppUsers(data || [])
@@ -197,29 +210,6 @@ export default function PermissionsPage() {
       setRolesError(err.message || 'حدث خطأ أثناء تحميل المستخدمين')
     } finally {
       setLoadingUsers(false)
-    }
-  }
-
-  async function loadPagePermissions() {
-    try {
-      const { data, error } = await supabase
-        .from('user_page_permissions')
-        .select('user_id, page_id, can_view, can_create, can_edit, can_delete')
-      if (error) throw error
-
-      const m: PagePermMatrix = {}
-      for (const row of data ?? []) {
-        if (!m[row.user_id]) m[row.user_id] = {}
-        m[row.user_id][row.page_id] = {
-          can_view: row.can_view,
-          can_create: row.can_create,
-          can_edit: row.can_edit,
-          can_delete: row.can_delete,
-        }
-      }
-      setPagePerms(m)
-    } catch (err: any) {
-      console.error('Error loading page permissions:', err.message)
     }
   }
 
@@ -280,116 +270,74 @@ export default function PermissionsPage() {
     }
   }
 
-  // ── تعديل خلية صلاحية صفحة واحدة لمستخدم (محلي، لسه محتاج حفظ) ──
-  function togglePageCell(userId: string, pageId: string, action: keyof PagePermCell) {
-    setPagePerms(prev => {
-      const current = prev[userId]?.[pageId] ?? { ...EMPTY_CELL }
-      const nextVal = !current[action]
-      const updatedCell: PagePermCell = { ...current, [action]: nextVal }
-
-      if (action === 'can_view' && !nextVal) {
-        updatedCell.can_create = false
-        updatedCell.can_edit = false
-        updatedCell.can_delete = false
-      }
-      if (action !== 'can_view' && nextVal) {
-        updatedCell.can_view = true
-      }
-
-      return { ...prev, [userId]: { ...prev[userId], [pageId]: updatedCell } }
-    })
-    setDirtyUsers(prev => new Set(prev).add(userId))
-  }
-
-  function togglePageRow(userId: string, pageId: string, value: boolean) {
-    setPagePerms(prev => ({
-      ...prev,
-      [userId]: {
-        ...prev[userId],
-        [pageId]: value
-          ? { can_view: true, can_create: true, can_edit: true, can_delete: true }
-          : { ...EMPTY_CELL },
-      },
-    }))
-    setDirtyUsers(prev => new Set(prev).add(userId))
-  }
-
-  // ── حفظ صلاحيات الصفحات لمستخدم معين في قاعدة البيانات ──
-  async function savePagePermissions(user: AppUser) {
-    setSavingPerms(user.id)
+  async function updatePermission(id: string, key: PermissionKey, value: boolean) {
+    if (!isOwner) return
+    const prevUser = appUsers.find(u => u.id === id)
+    setSavingRole(id)
     try {
-      const tenantId = await getMyTenantId()
-      const rows = ASSIGNABLE_PAGES.map(p => {
-        const cell = pagePerms[user.id]?.[p.id] ?? EMPTY_CELL
-        return {
-          user_id: user.id,
-          tenant_id: tenantId,
-          page_id: p.id,
-          can_view: cell.can_view,
-          can_create: cell.can_create,
-          can_edit: cell.can_edit,
-          can_delete: cell.can_delete,
-          updated_at: new Date().toISOString(),
-        }
-      })
-
-      const { error } = await supabase
-        .from('user_page_permissions')
-        .upsert(rows, { onConflict: 'user_id,page_id' })
+      const { error } = await supabase.from('users').update({ [key]: value }).eq('id', id)
       if (error) throw error
-
-      setDirtyUsers(prev => {
-        const next = new Set(prev)
-        next.delete(user.id)
-        return next
-      })
-      logUserActivity('تعديل صلاحيات الصفحات', user.full_name, null, rows.filter(r => r.can_view)).then(loadActivityLog)
+      setAppUsers(prev => prev.map(u => u.id === id ? { ...u, [key]: value } : u))
+      if (prevUser) logUserActivity('تغيير صلاحية', prevUser.full_name, { [key]: prevUser[key] }, { [key]: value }).then(loadActivityLog)
     } catch (err: any) {
-      alert('تعذر حفظ صلاحيات الصفحات: ' + err.message)
+      alert('تعذر تغيير الصلاحية: ' + err.message + '\nملحوظة: تغيير الصلاحيات مسموح به فقط لصاحب الحساب (owner).')
     } finally {
-      setSavingPerms(null)
+      setSavingRole(null)
     }
   }
 
-  // ── تطبيق صلاحيات الصفحات الافتراضية المقترحة لدور المستخدم، وحفظها فورًا ──
+  // ── تعديل صفحة واحدة (منح/سحب) لمستخدم معيّن ──
+  async function updateAllowedPage(user: AppUser, pageKey: string, checked: boolean) {
+    if (!isOwner) return
+    const current = user.allowed_pages || []
+    const next = checked ? Array.from(new Set([...current, pageKey])) : current.filter(p => p !== pageKey)
+    setSavingRole(user.id)
+    try {
+      const { error } = await supabase.from('users').update({ allowed_pages: next }).eq('id', user.id)
+      if (error) throw error
+      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, allowed_pages: next } : u))
+      logUserActivity('تعديل صفحة مسموحة', user.full_name, { allowed_pages: current }, { allowed_pages: next }).then(loadActivityLog)
+    } catch (err: any) {
+      alert('تعذر تعديل الصفحات المسموحة: ' + err.message)
+    } finally {
+      setSavingRole(null)
+    }
+  }
+
+  // ── تحديد/إلغاء كل الصفحات لمستخدم معيّن دفعة واحدة ──
+  async function setAllPages(user: AppUser, value: boolean) {
+    if (!isOwner) return
+    const next = value ? PAGE_LIST.map(p => p.key) : []
+    setSavingRole(user.id)
+    try {
+      const { error } = await supabase.from('users').update({ allowed_pages: next }).eq('id', user.id)
+      if (error) throw error
+      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, allowed_pages: next } : u))
+      logUserActivity(value ? 'تحديد كل الصفحات' : 'إلغاء كل الصفحات', user.full_name, { allowed_pages: user.allowed_pages }, { allowed_pages: next }).then(loadActivityLog)
+    } catch (err: any) {
+      alert('تعذر تعديل الصفحات: ' + err.message)
+    } finally {
+      setSavingRole(null)
+    }
+  }
+
   async function applyRoleDefaults(user: AppUser) {
     if (!isOwner) return
-    const defaultPageIds = ROLE_DEFAULT_PAGES[user.role] ?? []
-    if (!confirm(`سيتم استبدال صلاحيات صفحات "${user.full_name}" بالصلاحيات الافتراضية المقترحة لدور "${roles[user.role]}". هل تريد المتابعة؟`)) return
+    const defaults = ROLE_DEFAULT_PERMISSIONS[user.role]
+    if (!defaults) return
+    const defaultPages = ROLE_DEFAULT_PAGES[user.role] || []
+    if (!confirm(`سيتم استبدال صلاحيات وصفحات "${user.full_name}" بالإعدادات الافتراضية لدور "${roles[user.role]}". هل تريد المتابعة؟`)) return
 
-    const updatedForUser: Record<string, PagePermCell> = {}
-    for (const p of ASSIGNABLE_PAGES) {
-      updatedForUser[p.id] = defaultPageIds.includes(p.id)
-        ? { can_view: true, can_create: true, can_edit: true, can_delete: true }
-        : { ...EMPTY_CELL }
-    }
-
-    setSavingPerms(user.id)
+    setSavingRole(user.id)
     try {
-      const tenantId = await getMyTenantId()
-      const rows = ASSIGNABLE_PAGES.map(p => ({
-        user_id: user.id,
-        tenant_id: tenantId,
-        page_id: p.id,
-        ...updatedForUser[p.id],
-        updated_at: new Date().toISOString(),
-      }))
-      const { error } = await supabase
-        .from('user_page_permissions')
-        .upsert(rows, { onConflict: 'user_id,page_id' })
+      const { error } = await supabase.from('users').update({ ...defaults, allowed_pages: defaultPages }).eq('id', user.id)
       if (error) throw error
-
-      setPagePerms(prev => ({ ...prev, [user.id]: updatedForUser }))
-      setDirtyUsers(prev => {
-        const next = new Set(prev)
-        next.delete(user.id)
-        return next
-      })
-      logUserActivity('تطبيق صلاحيات صفحات افتراضية', user.full_name, null, defaultPageIds).then(loadActivityLog)
+      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...defaults, allowed_pages: defaultPages } : u))
+      logUserActivity('تطبيق إعدادات افتراضية', user.full_name, null, { ...defaults, allowed_pages: defaultPages }).then(loadActivityLog)
     } catch (err: any) {
-      alert('تعذر تطبيق الصلاحيات الافتراضية: ' + err.message)
+      alert('تعذر تطبيق الإعدادات الافتراضية: ' + err.message)
     } finally {
-      setSavingPerms(null)
+      setSavingRole(null)
     }
   }
 
@@ -475,14 +423,14 @@ export default function PermissionsPage() {
     <div className="p-6 min-h-screen" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
       <div className="mb-6">
         <h1 className="text-2xl font-black text-white">🔐 الصلاحيات والموظفون</h1>
-        <p className="text-sm text-gray-500 mt-1">إدارة أدوار المستخدمين وصلاحيات كل صفحة وقاعدة بيانات الموظفين</p>
+        <p className="text-sm text-gray-500 mt-1">إدارة أدوار المستخدمين وقاعدة بيانات الموظفين</p>
       </div>
 
       {/* التبويبات */}
       <div className="flex gap-2 mb-6">
         <button
-          onClick={() => setActiveTab('permissions')}
-          className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'permissions' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10'}`}
+          onClick={() => setActiveTab('roles')}
+          className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'roles' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10'}`}
         >
           🔑 صلاحيات المستخدمين
         </button>
@@ -497,7 +445,7 @@ export default function PermissionsPage() {
       </div>
 
       {/* ══════════ تبويب: صلاحيات المستخدمين ══════════ */}
-      {activeTab === 'permissions' && (
+      {activeTab === 'roles' && (
         <div>
           {rolesError && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 mb-6 text-sm text-red-400">
@@ -507,7 +455,7 @@ export default function PermissionsPage() {
 
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-gray-400">
-              {isOwner ? 'تعيين الأدوار وصلاحيات كل صفحة لمستخدمي النظام' : 'عرض أدوار وصلاحيات مستخدمي النظام (للقراءة فقط)'}
+              {isOwner ? 'تعيين الأدوار والصلاحيات والصفحات المسموحة لمستخدمي النظام' : 'عرض أدوار وصلاحيات مستخدمي النظام (للقراءة فقط)'}
             </h2>
             {isOwner && (
               <button
@@ -619,173 +567,130 @@ export default function PermissionsPage() {
                 </select>
               </div>
 
-              {filteredUsers.map(u => {
-                const isDirty = dirtyUsers.has(u.id)
-                const isExpanded = expandedUserId === u.id
-                const userPerms = pagePerms[u.id] ?? {}
-
-                return (
-                  <div key={u.id} className={`bg-[#111927] rounded-2xl border p-5 ${u.is_active === false ? 'border-red-500/20 opacity-70' : 'border-white/5'}`}>
-                    <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">
-                          {u.full_name?.[0] || '?'}
-                        </div>
-                        <div>
-                          <div className="text-sm text-white font-bold flex items-center gap-2">
-                            {u.full_name}
-                            {u.is_active === false && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">معطّل</span>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-500">{u.email}</div>
-                          <div className="text-[10px] text-gray-600 mt-0.5">
-                            آخر دخول: {u.last_login_at ? new Date(u.last_login_at).toLocaleString('ar-EG') : 'لم يسجل دخول بعد'}
-                          </div>
-                        </div>
+              {filteredUsers.map(u => (
+                <div key={u.id} className={`bg-[#111927] rounded-2xl border p-5 ${u.is_active === false ? 'border-red-500/20 opacity-70' : 'border-white/5'}`}>
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">
+                        {u.full_name?.[0] || '?'}
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {isOwner ? (
-                          <select
-                            value={u.role}
-                            disabled={savingRole === u.id}
-                            onChange={e => updateRole(u.id, e.target.value)}
-                            className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
-                          >
-                            {Object.entries(roles).map(([k, v]) => (
-                              <option key={k} value={k}>{v}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-300 border border-white/10">
-                            {roles[u.role] || u.role}
-                          </span>
-                        )}
-                        {isOwner && u.role !== 'owner' && (
-                          <button
-                            onClick={() => applyRoleDefaults(u)}
-                            disabled={savingPerms === u.id}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
-                          >
-                            ↺ تطبيق صلاحيات الدور الافتراضية
-                          </button>
-                        )}
-                        {isOwner && (
-                          <button
-                            onClick={() => toggleActive(u)}
-                            disabled={savingRole === u.id}
-                            className={`text-xs px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${
-                              u.is_active === false
-                                ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20'
-                                : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
-                            }`}
-                          >
-                            {u.is_active === false ? '✓ تفعيل الحساب' : '⛔ تعطيل الحساب'}
-                          </button>
-                        )}
+                      <div>
+                        <div className="text-sm text-white font-bold flex items-center gap-2">
+                          {u.full_name}
+                          {u.is_active === false && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">معطّل</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">{u.email}</div>
+                        <div className="text-[10px] text-gray-600 mt-0.5">
+                          آخر دخول: {u.last_login_at ? new Date(u.last_login_at).toLocaleString('ar-EG') : 'لم يسجل دخول بعد'}
+                        </div>
                       </div>
                     </div>
-
-                    <div className="h-px bg-white/5 mb-4" />
-
-                    {u.role === 'owner' ? (
-                      <p className="text-xs text-gray-600">👑 صاحب الحساب — يرى ويتحكم في كل الصفحات تلقائيًا، لا يحتاج تعيين صلاحيات.</p>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setExpandedUserId(isExpanded ? null : u.id)}
-                          className="w-full flex items-center justify-between text-xs font-bold text-gray-400 hover:text-amber-400 transition py-1"
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {isOwner ? (
+                        <select
+                          value={u.role}
+                          disabled={savingRole === u.id}
+                          onChange={e => updateRole(u.id, e.target.value)}
+                          className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
                         >
-                          <span className="flex items-center gap-2">
-                            📄 صلاحيات الصفحات
-                            {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="تعديلات غير محفوظة" />}
-                          </span>
-                          <span>{isExpanded ? '▲' : '▼'}</span>
+                          {Object.entries(roles).map(([k, v]) => (
+                            <option key={k} value={k}>{v}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-300 border border-white/10">
+                          {roles[u.role] || u.role}
+                        </span>
+                      )}
+                      {isOwner && (
+                        <button
+                          onClick={() => applyRoleDefaults(u)}
+                          disabled={savingRole === u.id}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
+                        >
+                          ↺ تطبيق الإعدادات الافتراضية للدور
                         </button>
+                      )}
+                      {isOwner && (
+                        <button
+                          onClick={() => toggleActive(u)}
+                          disabled={savingRole === u.id}
+                          className={`text-xs px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${
+                            u.is_active === false
+                              ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20'
+                              : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
+                          }`}
+                        >
+                          {u.is_active === false ? '✓ تفعيل الحساب' : '⛔ تعطيل الحساب'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
-                        {isExpanded && (
-                          <div className="mt-3 border border-white/10 rounded-xl overflow-hidden">
-                            <div className="flex items-center justify-end gap-2 p-2 bg-white/[0.02] border-b border-white/10">
-                              {isOwner && (
-                                <button
-                                  onClick={() => savePagePermissions(u)}
-                                  disabled={!isDirty || savingPerms === u.id}
-                                  className="px-4 py-1.5 text-xs font-bold rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                >
-                                  {savingPerms === u.id ? 'جاري الحفظ...' : 'حفظ صلاحيات الصفحات'}
-                                </button>
-                              )}
-                            </div>
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="border-b border-white/10 text-gray-500">
-                                    <th className="text-right p-2.5 font-medium">الصفحة</th>
-                                    {ACTIONS.map(a => (
-                                      <th key={a.key} className="p-2.5 font-medium text-center w-16">{a.label}</th>
-                                    ))}
-                                    <th className="p-2.5 font-medium text-center w-20">الكل</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {PAGE_SECTIONS.map(section => {
-                                    const pagesInSection = ASSIGNABLE_PAGES.filter(p => p.section === section)
-                                    if (pagesInSection.length === 0) return null
-                                    return (
-                                      <tbody key={`${u.id}-${section}`}>
-                                        <tr className="bg-white/[0.02]">
-                                          <td colSpan={ACTIONS.length + 2} className="px-2.5 py-1 text-[10px] text-amber-500/70 font-semibold uppercase tracking-wide">
-                                            {section}
-                                          </td>
-                                        </tr>
-                                        {pagesInSection.map(page => {
-                                          const cell = userPerms[page.id] ?? EMPTY_CELL
-                                          const allOn = cell.can_view && cell.can_create && cell.can_edit && cell.can_delete
-                                          return (
-                                            <tr key={page.id} className="border-b border-white/5 hover:bg-white/[0.02] transition">
-                                              <td className="p-2.5">
-                                                <span className="flex items-center gap-2 text-gray-300">
-                                                  <span>{page.icon}</span>
-                                                  <span>{page.label}</span>
-                                                </span>
-                                              </td>
-                                              {ACTIONS.map(a => (
-                                                <td key={a.key} className="p-2.5 text-center">
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={cell[a.key]}
-                                                    disabled={!isOwner}
-                                                    onChange={() => isOwner && togglePageCell(u.id, page.id, a.key)}
-                                                    className="w-4 h-4 accent-amber-500 cursor-pointer disabled:cursor-default"
-                                                  />
-                                                </td>
-                                              ))}
-                                              <td className="p-2.5 text-center">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={allOn}
-                                                  disabled={!isOwner}
-                                                  onChange={() => isOwner && togglePageRow(u.id, page.id, !allOn)}
-                                                  className="w-4 h-4 accent-green-500 cursor-pointer disabled:cursor-default"
-                                                  title="تفعيل/إلغاء كل الصلاحيات لهذه الصفحة"
-                                                />
-                                              </td>
-                                            </tr>
-                                          )
-                                        })}
-                                      </tbody>
-                                    )
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        )}
-                      </>
+                  <div className="h-px bg-white/5 mb-4" />
+
+                  {/* ── الصلاحيات العريضة (أفعال) ── */}
+                  <p className="text-[11px] text-gray-600 font-semibold mb-2">🛠️ صلاحيات الأفعال</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
+                    {PERMISSION_KEYS.map(key => (
+                      <label
+                        key={key}
+                        className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border transition ${
+                          u[key] ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-white/5 border-white/10 text-gray-500'
+                        } ${isOwner ? 'cursor-pointer' : 'cursor-default'} ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={u[key]}
+                          disabled={!isOwner}
+                          onChange={e => isOwner && updatePermission(u.id, key, e.target.checked)}
+                          className="accent-amber-500"
+                        />
+                        {PERMISSION_LABELS[key]}
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* ── الصفحات المسموح بمشاهدتها (تحكم دقيق لكل صفحة) ── */}
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] text-gray-600 font-semibold">📄 الصفحات المسموح بمشاهدتها</p>
+                    {isOwner && u.role !== 'owner' && (
+                      <div className="flex gap-3">
+                        <button onClick={() => setAllPages(u, true)} disabled={savingRole === u.id} className="text-[11px] text-sky-400 hover:underline disabled:opacity-50">تحديد الكل</button>
+                        <button onClick={() => setAllPages(u, false)} disabled={savingRole === u.id} className="text-[11px] text-gray-500 hover:underline disabled:opacity-50">إلغاء الكل</button>
+                      </div>
                     )}
                   </div>
-                )
-              })}
+                  {u.role === 'owner' ? (
+                    <p className="text-[11px] text-gray-600">صاحب الحساب يشوف كل الصفحات دايمًا، مفيش داعي لتحديدها.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                      {PAGE_LIST.map(page => {
+                        const checked = u.allowed_pages?.includes(page.key) ?? false
+                        return (
+                          <label
+                            key={page.key}
+                            className={`flex items-center gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
+                              checked ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
+                            } ${isOwner ? 'cursor-pointer' : 'cursor-default'} ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!isOwner}
+                              onChange={e => isOwner && updateAllowedPage(u, page.key, e.target.checked)}
+                              className="accent-sky-500"
+                            />
+                            {page.icon} {page.label}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
               {filteredUsers.length === 0 && (
                 <div className="text-center py-8 text-gray-600 text-sm">لا يوجد مستخدمون مطابقون</div>
               )}
@@ -793,7 +698,7 @@ export default function PermissionsPage() {
           )}
           <p className="text-xs text-gray-600 mt-3">
             {isOwner
-              ? '💡 تغيير الدور مسموح به فقط لصاحب الحساب الأساسي (owner). افتح "صلاحيات الصفحات" لكل مستخدم لتحديد أي صفحة يشوفها بالظبط، وماذا يقدر يفعل جواها (عرض/إضافة/تعديل/حذف). زر "تطبيق صلاحيات الدور الافتراضية" يستبدل كل صلاحيات صفحات المستخدم دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي صلاحية بشكل فردي.'
+              ? '💡 "صلاحيات الأفعال" بتتحكم فيما يقدر يعدّله المستخدم جوه الصفحة، و"الصفحات المسموح بمشاهدتها" بتتحكم في أنهي صفحات تظهر له أصلاً في القائمة الجانبية ويقدر يفتحها. زر "تطبيق الإعدادات الافتراضية للدور" يستبدل الاتنين دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي بند بشكل فردي.'
               : '💡 الأدوار والصلاحيات المعروضة هنا للقراءة فقط، ويتم تعديلها من صاحب الحساب (owner) فقط.'}
           </p>
 
