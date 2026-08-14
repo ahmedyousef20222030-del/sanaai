@@ -16,7 +16,7 @@ type PagePermission = {
 type Me = { role: string }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const router   = useRouter()
+  const router = useRouter()
   const pathname = usePathname()
 
   const [me, setMe] = useState<Me | null>(null)
@@ -70,17 +70,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const sections = new Map<string, typeof SYSTEM_PAGES>()
     for (const page of SYSTEM_PAGES) {
       if (page.ownerOnly && !isOwner) continue
-      if (!can(page.id, 'can_view')) continue
+      if (!page.alwaysVisible && !can(page.id, 'can_view')) continue
       if (!sections.has(page.section)) sections.set(page.section, [])
       sections.get(page.section)!.push(page)
     }
     return Array.from(sections.entries()).map(([section, items]) => ({ section, items }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perms, isOwner])
 
   function isCurrentRouteAllowed(): boolean {
     if (isOwner) return true
     const page = findPageByPath(pathname)
     if (!page) return true
+    if (page.alwaysVisible) return true
     if (page.ownerOnly) return false
     return can(page.id, 'can_view')
   }
