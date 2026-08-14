@@ -6,11 +6,10 @@ export interface SystemPage {
   icon: string
   path: string
   section: string
-  ownerOnly?: boolean      // الصفحة دي محجوبة تمامًا عن أي حد غير الـ owner (زي الإعدادات)
-  alwaysVisible?: boolean  // ظاهرة لأي مستخدم مسجل دخول، بدون التحقق من صلاحية (زي لوحة التحكم الرئيسية)
+  ownerOnly?: boolean
+  alwaysVisible?: boolean
 }
 
-// ── كل صفحات النظام، بالترتيب اللي هيظهروا بيه في القائمة الجانبية ──
 export const SYSTEM_PAGES: SystemPage[] = [
   { id: 'dashboard',   label: 'لوحة التحكم',       icon: '🏠', path: '/dashboard',             section: 'الرئيسية', alwaysVisible: true },
 
@@ -36,15 +35,15 @@ export const SYSTEM_PAGES: SystemPage[] = [
   { id: 'settings',    label: 'الإعدادات',          icon: '⚙️', path: '/dashboard/settings',    section: 'الإدارة', ownerOnly: true },
 ]
 
-// ── الصفحات اللي ممكن الـ owner يعيّن صلاحيات عليها لمستخدم تاني ──
-// (بنستبعد لوحة التحكم لأنها ظاهرة دايمًا، والإعدادات لأنها owner فقط ولا تُعيَّن)
 export const ASSIGNABLE_PAGES: SystemPage[] = SYSTEM_PAGES.filter(
   p => !p.alwaysVisible && !p.ownerOnly
 )
 
-// ── أسماء الأقسام بالترتيب، مبنية تلقائيًا من ASSIGNABLE_PAGES فعليًا ──
 export const PAGE_SECTIONS: string[] = Array.from(
   new Set(ASSIGNABLE_PAGES.map(p => p.section))
 )
 
-// ── إيجاد الصفحة
+export function findPageByPath(pathname: string): SystemPage | undefined {
+  const sorted = [...SYSTEM_PAGES].sort((a, b) => b.path.length - a.path.length)
+  return sorted.find(p => pathname === p.path || pathname.startsWith(p.path + '/'))
+}
