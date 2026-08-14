@@ -121,6 +121,12 @@ async function logUserActivity(action: string, entityLabel: string, oldValue: an
 export default function PermissionsPage() {
   const [activeTab, setActiveTab] = useState<'employees' | 'roles'>('roles')
 
+  // ── هوية وصلاحية المستخدم الحالي (لازمة عشان نقفل الشاشة على غير الـ owner) ──
+  const [myId, setMyId] = useState<string | null>(null)
+  const [myRole, setMyRole] = useState<string | null>(null)
+  const [loadingMe, setLoadingMe] = useState(true)
+  const isOwner = myRole === 'owner'
+
   // ── حالة تبويب "صلاحيات المستخدمين" ──
   const [appUsers, setAppUsers] = useState<AppUser[]>([])
   const [loadingUsers, setLoadingUsers] = useState(true)
@@ -147,10 +153,34 @@ export default function PermissionsPage() {
   const [form, setForm] = useState({ name: '', phone: '', role: 'production', salary: 0 })
 
   useEffect(() => {
+    loadMe()
     loadUsers()
     loadEmployees()
     loadActivityLog()
   }, [])
+
+  // لو مستخدم مش owner لأي سبب لقى نفسه على تبويب الموظفين (state قديم، رابط مباشر...) رجّعه لتبويب الصلاحيات
+  useEffect(() => {
+    if (!loadingMe && !isOwner && activeTab === 'employees') {
+      setActiveTab('roles')
+    }
+  }, [loadingMe, isOwner, activeTab])
+
+  async function loadMe() {
+    setLoadingMe(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      setMyId(user.id)
+      const { data, error } = await supabase.from('users').select('role').eq('id', user.id).single()
+      if (error) throw error
+      setMyRole(data?.role || null)
+    } catch (err: any) {
+      console.error('Error loading current user role:', err.message)
+    } finally {
+      setLoadingMe(false)
+    }
+  }
 
   async function loadUsers() {
     setLoadingUsers(true)
@@ -177,6 +207,7 @@ export default function PermissionsPage() {
   })
 
   async function toggleActive(user: AppUser) {
+    if (!isOwner) return
     const nextValue = !user.is_active
     setSavingRole(user.id)
     try {
@@ -210,6 +241,7 @@ export default function PermissionsPage() {
   }
 
   async function updateRole(id: string, role: string) {
+    if (!isOwner) return
     const prevUser = appUsers.find(u => u.id === id)
     setSavingRole(id)
     try {
@@ -225,6 +257,7 @@ export default function PermissionsPage() {
   }
 
   async function updatePermission(id: string, key: PermissionKey, value: boolean) {
+    if (!isOwner) return
     const prevUser = appUsers.find(u => u.id === id)
     setSavingRole(id)
     try {
@@ -240,6 +273,7 @@ export default function PermissionsPage() {
   }
 
   async function applyRoleDefaults(user: AppUser) {
+    if (!isOwner) return
     const defaults = ROLE_DEFAULT_PERMISSIONS[user.role]
     if (!defaults) return
     if (!confirm(`سيتم استبدال صلاحيات "${user.full_name}" بالصلاحيات الافتراضية لدور "${roles[user.role]}". هل تريد المتابعة؟`)) return
@@ -258,6 +292,7 @@ export default function PermissionsPage() {
   }
 
   async function handleAddUser() {
+    if (!isOwner) return
     if (!newUserForm.email.trim() || !newUserForm.password || !newUserForm.full_name.trim()) {
       alert('يرجى ملء كل الحقول')
       return
@@ -313,6 +348,7 @@ export default function PermissionsPage() {
   }
 
   async function handleAddEmployee() {
+    if (!isOwner) return
     if (!form.name.trim()) {
       alert('الاسم مطلوب')
       return
@@ -348,12 +384,15 @@ export default function PermissionsPage() {
         >
           🔑 صلاحيات المستخدمين
         </button>
-        <button
-          onClick={() => setActiveTab('employees')}
-          className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'employees' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10'}`}
-        >
-          👥 إدارة الموظفين
-        </button>
+        {/* تبويب الموظفين مقفول على الـ owner بس */}
+        {isOwner && (
+          <button
+            onClick={() => setActiveTab('employees')}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'employees' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10'}`}
+          >
+            👥 إدارة الموظفين
+          </button>
+        )}
       </div>
 
       {/* ══════════ تبويب: صلاحيات المستخدمين ══════════ */}
@@ -366,16 +405,20 @@ export default function PermissionsPage() {
           )}
 
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-gray-400">تعيين الأدوار والصلاحيات الدقيقة لمستخدمي النظام</h2>
-            <button
-              onClick={() => setShowAddUser(true)}
-              className="px-4 py-2 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition text-sm shadow-lg shadow-amber-500/20"
-            >
-              ➕ إضافة مستخدم جديد
-            </button>
+            <h2 className="text-sm font-bold text-gray-400">
+              {isOwner ? 'تعيين الأدوار والصلاحيات الدقيقة لمستخدمي النظام' : 'عرض أدوار وصلاحيات مستخدمي النظام (للقراءة فقط)'}
+            </h2>
+            {isOwner && (
+              <button
+                onClick={() => setShowAddUser(true)}
+                className="px-4 py-2 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition text-sm shadow-lg shadow-amber-500/20"
+              >
+                ➕ إضافة مستخدم جديد
+              </button>
+            )}
           </div>
 
-          {showAddUser && (
+          {isOwner && showAddUser && (
             <div
               className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
               onClick={() => setShowAddUser(false)}
@@ -451,7 +494,7 @@ export default function PermissionsPage() {
             </div>
           )}
 
-          {loadingUsers ? (
+          {(loadingUsers || loadingMe) ? (
             <div className="text-center py-8 text-gray-600">جاري التحميل...</div>
           ) : (
             <div className="space-y-4">
@@ -496,34 +539,44 @@ export default function PermissionsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <select
-                        value={u.role}
-                        disabled={savingRole === u.id}
-                        onChange={e => updateRole(u.id, e.target.value)}
-                        className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
-                      >
-                        {Object.entries(roles).map(([k, v]) => (
-                          <option key={k} value={k}>{v}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => applyRoleDefaults(u)}
-                        disabled={savingRole === u.id}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
-                      >
-                        ↺ تطبيق صلاحيات الدور الافتراضية
-                      </button>
-                      <button
-                        onClick={() => toggleActive(u)}
-                        disabled={savingRole === u.id}
-                        className={`text-xs px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${
-                          u.is_active === false
-                            ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20'
-                            : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
-                        }`}
-                      >
-                        {u.is_active === false ? '✓ تفعيل الحساب' : '⛔ تعطيل الحساب'}
-                      </button>
+                      {isOwner ? (
+                        <select
+                          value={u.role}
+                          disabled={savingRole === u.id}
+                          onChange={e => updateRole(u.id, e.target.value)}
+                          className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
+                        >
+                          {Object.entries(roles).map(([k, v]) => (
+                            <option key={k} value={k}>{v}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-300 border border-white/10">
+                          {roles[u.role] || u.role}
+                        </span>
+                      )}
+                      {isOwner && (
+                        <button
+                          onClick={() => applyRoleDefaults(u)}
+                          disabled={savingRole === u.id}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
+                        >
+                          ↺ تطبيق صلاحيات الدور الافتراضية
+                        </button>
+                      )}
+                      {isOwner && (
+                        <button
+                          onClick={() => toggleActive(u)}
+                          disabled={savingRole === u.id}
+                          className={`text-xs px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${
+                            u.is_active === false
+                              ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20'
+                              : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
+                          }`}
+                        >
+                          {u.is_active === false ? '✓ تفعيل الحساب' : '⛔ تعطيل الحساب'}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -533,14 +586,15 @@ export default function PermissionsPage() {
                     {PERMISSION_KEYS.map(key => (
                       <label
                         key={key}
-                        className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border cursor-pointer transition ${
+                        className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border transition ${
                           u[key] ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-white/5 border-white/10 text-gray-500'
-                        } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                        } ${isOwner ? 'cursor-pointer' : 'cursor-default'} ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
                       >
                         <input
                           type="checkbox"
                           checked={u[key]}
-                          onChange={e => updatePermission(u.id, key, e.target.checked)}
+                          disabled={!isOwner}
+                          onChange={e => isOwner && updatePermission(u.id, key, e.target.checked)}
                           className="accent-amber-500"
                         />
                         {PERMISSION_LABELS[key]}
@@ -555,7 +609,9 @@ export default function PermissionsPage() {
             </div>
           )}
           <p className="text-xs text-gray-600 mt-3">
-            💡 تغيير الدور أو الصلاحيات مسموح به فقط لصاحب الحساب الأساسي (owner) داخل نفس المنشأة. زر "تطبيق صلاحيات الدور الافتراضية" يستبدل كل صلاحيات المستخدم دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي صلاحية بشكل فردي.
+            {isOwner
+              ? '💡 تغيير الدور أو الصلاحيات مسموح به فقط لصاحب الحساب الأساسي (owner) داخل نفس المنشأة. زر "تطبيق صلاحيات الدور الافتراضية" يستبدل كل صلاحيات المستخدم دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي صلاحية بشكل فردي.'
+              : '💡 الأدوار والصلاحيات المعروضة هنا للقراءة فقط، ويتم تعديلها من صاحب الحساب (owner) فقط.'}
           </p>
 
           {/* ── سجل تغييرات الصلاحيات ── */}
@@ -597,112 +653,118 @@ export default function PermissionsPage() {
         </div>
       )}
 
-      {/* ══════════ تبويب: إدارة الموظفين ══════════ */}
+      {/* ══════════ تبويب: إدارة الموظفين (owner بس) ══════════ */}
       {activeTab === 'employees' && (
-        <div>
-          <div className="flex items-center justify-end mb-4">
-            <button
-              onClick={() => setShowForm(true)}
-              className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20"
-            >
-              ➕ موظف جديد
-            </button>
-          </div>
-
-          {showForm && (
-            <div
-              className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
-              onClick={() => setShowForm(false)}
-            >
-              <div
-                className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl"
-                onClick={e => e.stopPropagation()}
+        isOwner ? (
+          <div>
+            <div className="flex items-center justify-end mb-4">
+              <button
+                onClick={() => setShowForm(true)}
+                className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20"
               >
-                <h2 className="text-lg font-bold text-amber-400 mb-4">➕ إضافة موظف جديد</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs text-gray-500 mb-1">اسم الموظف *</label>
-                    <input
-                      type="text"
-                      value={form.name}
-                      onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">الهاتف</label>
-                    <input
-                      type="text"
-                      value={form.phone}
-                      onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">الدور / الوظيفة</label>
-                    <select
-                      value={form.role}
-                      onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
-                    >
-                      {Object.entries(roles).map(([key, label]) => (
-                        <option key={key} value={key} className="bg-[#0D1B2A]">{label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs text-gray-500 mb-1">الراتب الشهري</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={form.salary}
-                      onChange={e => setForm(f => ({ ...f, salary: Number(e.target.value) }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                </div>
+                ➕ موظف جديد
+              </button>
+            </div>
 
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={handleAddEmployee}
-                    disabled={saving}
-                    className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
-                  >
-                    {saving ? 'جاري الحفظ...' : '✅ حفظ الموظف'}
-                  </button>
-                  <button
-                    onClick={() => setShowForm(false)}
-                    className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition"
-                  >
-                    إلغاء
-                  </button>
+            {showForm && (
+              <div
+                className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+                onClick={() => setShowForm(false)}
+              >
+                <div
+                  className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <h2 className="text-lg font-bold text-amber-400 mb-4">➕ إضافة موظف جديد</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1">اسم الموظف *</label>
+                      <input
+                        type="text"
+                        value={form.name}
+                        onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">الهاتف</label>
+                      <input
+                        type="text"
+                        value={form.phone}
+                        onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">الدور / الوظيفة</label>
+                      <select
+                        value={form.role}
+                        onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
+                      >
+                        {Object.entries(roles).map(([key, label]) => (
+                          <option key={key} value={key} className="bg-[#0D1B2A]">{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1">الراتب الشهري</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={form.salary}
+                        onChange={e => setForm(f => ({ ...f, salary: Number(e.target.value) }))}
+                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={handleAddEmployee}
+                      disabled={saving}
+                      className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
+                    >
+                      {saving ? 'جاري الحفظ...' : '✅ حفظ الموظف'}
+                    </button>
+                    <button
+                      onClick={() => setShowForm(false)}
+                      className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {loadingEmployees ? (
-            <div className="text-center py-16 text-gray-600">جاري تحميل الموظفين...</div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {employees.map(emp => (
-                <div key={emp.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all group">
-                  <h3 className="font-bold text-white text-base mb-2 group-hover:text-amber-400 transition">{emp.name}</h3>
-                  <div className="space-y-1">
-                    <p className="text-gray-500 text-xs">💼 الوظيفة: {roles[emp.role] || emp.role}</p>
-                    <p className="text-gray-500 text-xs">📞 الهاتف: {emp.phone || 'غير متوفر'}</p>
-                    <p className="text-amber-500 text-xs font-bold">💵 الراتب: {emp.salary} ج.م</p>
+            {loadingEmployees ? (
+              <div className="text-center py-16 text-gray-600">جاري تحميل الموظفين...</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {employees.map(emp => (
+                  <div key={emp.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all group">
+                    <h3 className="font-bold text-white text-base mb-2 group-hover:text-amber-400 transition">{emp.name}</h3>
+                    <div className="space-y-1">
+                      <p className="text-gray-500 text-xs">💼 الوظيفة: {roles[emp.role] || emp.role}</p>
+                      <p className="text-gray-500 text-xs">📞 الهاتف: {emp.phone || 'غير متوفر'}</p>
+                      <p className="text-amber-500 text-xs font-bold">💵 الراتب: {emp.salary} ج.م</p>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {employees.length === 0 && (
-                <div className="col-span-full text-center py-16 text-gray-600 text-sm">
-                  لا يوجد موظفون مسجلون بعد
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                ))}
+                {employees.length === 0 && (
+                  <div className="col-span-full text-center py-16 text-gray-600 text-sm">
+                    لا يوجد موظفون مسجلون بعد
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-16 text-gray-600 text-sm">
+            🚫 هذه الصفحة متاحة فقط لصاحب الحساب (owner)
+          </div>
+        )
       )}
     </div>
   )
