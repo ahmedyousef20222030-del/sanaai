@@ -38,6 +38,8 @@ interface ProductionOrder {
   attachments?: string[]
 }
 
+type StageKey = 'stage_design' | 'stage_cut' | 'stage_sew' | 'stage_print' | 'stage_pack'
+
 const statusColor: Record<string, string> = {
   'جديد':      'bg-blue-500/20 text-blue-400 border-blue-500/30',
   'قيد المعالجة': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
@@ -63,6 +65,32 @@ const sourceColor: Record<string, string> = {
   purchase_order: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
 }
 
+const PRODUCTION_STAGES: { label: string; stage: StageKey; icon: string }[] = [
+  { label: 'التصميم', stage: 'stage_design', icon: '🎨' },
+  { label: 'القص', stage: 'stage_cut', icon: '✂️' },
+  { label: 'الخياطة', stage: 'stage_sew', icon: '🧵' },
+  { label: 'الطباعة', stage: 'stage_print', icon: '🖨️' },
+  { label: 'التغليف', stage: 'stage_pack', icon: '📦' },
+]
+
+function nextStageValue(current: string) {
+  if (current === 'pending' || !current) return 'in_progress'
+  if (current === 'in_progress') return 'done'
+  return 'pending'
+}
+
+function stageBadgeClasses(current: string) {
+  if (current === 'done') return 'bg-green-500/20 text-green-400'
+  if (current === 'in_progress') return 'bg-amber-500/20 text-amber-400'
+  return 'bg-gray-500/20 text-gray-400'
+}
+
+function stageBadgeLabel(current: string) {
+  if (current === 'done') return '✓ مكتمل'
+  if (current === 'in_progress') return '⚙ جاري'
+  return '⏳ بانتظار'
+}
+
 export default function OrderDetailClient({ id }: { id: string }) {
   const router = useRouter()
   const [order, setOrder] = useState<ProductionOrder | null>(null)
@@ -74,6 +102,9 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
   const [items, setItems] = useState<any[]>([])
   const [itemsLoading, setItemsLoading] = useState(true)
+
+  const [updatingStage, setUpdatingStage] = useState<StageKey | null>(null)
+  const [stageError, setStageError] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -88,8 +119,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
       if (!authData?.user) throw new Error('يجب تسجيل الدخول')
 
       // 2) اجلب صف المستخدم من جدول users مرتبطاً صراحة بحساب المصادقة الحالي
-      //    ملاحظة: تأكد أن اسم العمود هنا (id) يطابق فعلياً العمود الذي يربط
-      //    جدول users بـ auth.users عندك (قد يكون id أو auth_id حسب تصميم قاعدة بياناتك)
       const { data: me, error: meError } = await supabase
         .from('users')
         .select('tenant_id')
@@ -202,6 +231,34 @@ export default function OrderDetailClient({ id }: { id: string }) {
       .order('created_at', { ascending: true })
     setItems(data || [])
     setItemsLoading(false)
+  }
+
+  async function updateStage(stageKey: StageKey) {
+    if (!order) return
+    setStageError(null)
+    const previousValue = order[stageKey]
+    const newValue = nextStageValue(previousValue)
+
+    // تحديث تفاؤلي فوري في الواجهة
+    setOrder(prev => (prev ? { ...prev, [stageKey]: newValue } : prev))
+    setUpdatingStage(stageKey)
+
+    try {
+      const { error } = await supabase
+        .from('production')
+        .update({ [stageKey]: newValue, updated_at: new Date().toISOString() })
+        .eq('id', order.id)
+        .eq('tenant_id', order.tenant_id)
+
+      if (error) throw error
+    } catch (err) {
+      console.error('خطأ في تحديث المرحلة:', err)
+      // رجّع القيمة القديمة لو فشل التحديث في قاعدة البيانات
+      setOrder(prev => (prev ? { ...prev, [stageKey]: previousValue } : prev))
+      setStageError('تعذر تحديث حالة المرحلة. تأكد من صلاحياتك وحاول مرة أخرى.')
+    } finally {
+      setUpdatingStage(null)
+    }
   }
 
   if (loading) {
@@ -374,37 +431,35 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
           production: (
             <div className="space-y-3">
-              {[
-                { label: 'التصميم', stage: 'stage_design', icon: '🎨' },
-                { label: 'القص', stage: 'stage_cut', icon: '✂️' },
-                { label: 'الخياطة', stage: 'stage_sew', icon: '🧵' },
-                { label: 'الطباعة', stage: 'stage_print', icon: '🖨️' },
-                { label: 'التغليف', stage: 'stage_pack', icon: '📦' },
-              ].map(({ label, stage, icon }) => (
-                <div key={stage} className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span>{icon}</span>
-                      <span className="font-semibold text-white">{label}</span>
-                    </div>
-                    <span
-                      className={`text-xs px-3 py-1 rounded-full font-bold ${
-                        order[stage as keyof ProductionOrder] === 'done'
-                          ? 'bg-green-500/20 text-green-400'
-                          : order[stage as keyof ProductionOrder] === 'in_progress'
-                            ? 'bg-amber-500/20 text-amber-400'
-                            : 'bg-gray-500/20 text-gray-400'
-                      }`}
-                    >
-                      {order[stage as keyof ProductionOrder] === 'done'
-                        ? '✓ مكتمل'
-                        : order[stage as keyof ProductionOrder] === 'in_progress'
-                          ? '⚙ جاري'
-                          : '⏳ بانتظار'}
-                    </span>
-                  </div>
+              {stageError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
+                  {stageError}
                 </div>
-              ))}
+              )}
+
+              {PRODUCTION_STAGES.map(({ label, stage, icon }) => {
+                const current = order[stage] || 'pending'
+                const isUpdating = updatingStage === stage
+
+                return (
+                  <div key={stage} className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span>{icon}</span>
+                        <span className="font-semibold text-white">{label}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateStage(stage)}
+                        disabled={isUpdating}
+                        className={`text-xs px-3 py-1.5 rounded-full font-bold transition cursor-pointer hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed ${stageBadgeClasses(current)}`}
+                      >
+                        {isUpdating ? '...' : stageBadgeLabel(current)}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           ),
 
