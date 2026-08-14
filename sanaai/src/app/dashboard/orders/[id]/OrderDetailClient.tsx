@@ -32,6 +32,11 @@ interface ProductionOrder {
   stage_sew: string
   stage_print: string
   stage_pack: string
+  stage_design_by?: string | null
+  stage_cut_by?: string | null
+  stage_sew_by?: string | null
+  stage_print_by?: string | null
+  stage_pack_by?: string | null
   updated_at: string
   tenant_id: string
   order_id: string
@@ -39,6 +44,7 @@ interface ProductionOrder {
 }
 
 type StageKey = 'stage_design' | 'stage_cut' | 'stage_sew' | 'stage_print' | 'stage_pack'
+type StageByKey = 'stage_design_by' | 'stage_cut_by' | 'stage_sew_by' | 'stage_print_by' | 'stage_pack_by'
 
 const statusColor: Record<string, string> = {
   'جديد':      'bg-blue-500/20 text-blue-400 border-blue-500/30',
@@ -65,12 +71,12 @@ const sourceColor: Record<string, string> = {
   purchase_order: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
 }
 
-const PRODUCTION_STAGES: { label: string; stage: StageKey; icon: string }[] = [
-  { label: 'التصميم', stage: 'stage_design', icon: '🎨' },
-  { label: 'القص', stage: 'stage_cut', icon: '✂️' },
-  { label: 'الخياطة', stage: 'stage_sew', icon: '🧵' },
-  { label: 'الطباعة', stage: 'stage_print', icon: '🖨️' },
-  { label: 'التغليف', stage: 'stage_pack', icon: '📦' },
+const PRODUCTION_STAGES: { label: string; stage: StageKey; byField: StageByKey; icon: string }[] = [
+  { label: 'التصميم', stage: 'stage_design', byField: 'stage_design_by', icon: '🎨' },
+  { label: 'القص', stage: 'stage_cut', byField: 'stage_cut_by', icon: '✂️' },
+  { label: 'الخياطة', stage: 'stage_sew', byField: 'stage_sew_by', icon: '🧵' },
+  { label: 'الطباعة', stage: 'stage_print', byField: 'stage_print_by', icon: '🖨️' },
+  { label: 'التغليف', stage: 'stage_pack', byField: 'stage_pack_by', icon: '📦' },
 ]
 
 function nextStageValue(current: string) {
@@ -105,6 +111,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
   const [updatingStage, setUpdatingStage] = useState<StageKey | null>(null)
   const [stageError, setStageError] = useState<string | null>(null)
+  const [currentUserName, setCurrentUserName] = useState<string>('مستخدم')
 
   useEffect(() => {
     loadData()
@@ -113,20 +120,20 @@ export default function OrderDetailClient({ id }: { id: string }) {
   async function loadData() {
     setLoading(true)
     try {
-      // 1) تأكد أولاً أن هناك مستخدماً مسجل الدخول فعلياً
       const { data: authData, error: authError } = await supabase.auth.getUser()
       if (authError) throw authError
       if (!authData?.user) throw new Error('يجب تسجيل الدخول')
 
-      // 2) اجلب صف المستخدم من جدول users مرتبطاً صراحة بحساب المصادقة الحالي
       const { data: me, error: meError } = await supabase
         .from('users')
-        .select('tenant_id')
+        .select('tenant_id, full_name')
         .eq('id', authData.user.id)
         .single()
 
       if (meError) throw meError
       if (!me?.tenant_id) throw new Error('بدون صلاحيات')
+
+      setCurrentUserName(me.full_name || 'مستخدم')
 
       const { data, error } = await supabase
         .from('production')
@@ -193,6 +200,11 @@ export default function OrderDetailClient({ id }: { id: string }) {
         stage_sew: data.stage_sew || 'pending',
         stage_print: data.stage_print || 'pending',
         stage_pack: data.stage_pack || 'pending',
+        stage_design_by: data.stage_design_by || null,
+        stage_cut_by: data.stage_cut_by || null,
+        stage_sew_by: data.stage_sew_by || null,
+        stage_print_by: data.stage_print_by || null,
+        stage_pack_by: data.stage_pack_by || null,
         updated_at: data.updated_at,
         tenant_id: me.tenant_id,
         attachments: data.orders?.attachments,
@@ -233,28 +245,31 @@ export default function OrderDetailClient({ id }: { id: string }) {
     setItemsLoading(false)
   }
 
-  async function updateStage(stageKey: StageKey) {
+  async function updateStage(stageKey: StageKey, byField: StageByKey) {
     if (!order) return
     setStageError(null)
     const previousValue = order[stageKey]
+    const previousBy = order[byField]
     const newValue = nextStageValue(previousValue)
 
-    // تحديث تفاؤلي فوري في الواجهة
-    setOrder(prev => (prev ? { ...prev, [stageKey]: newValue } : prev))
+    setOrder(prev => (prev ? { ...prev, [stageKey]: newValue, [byField]: currentUserName } : prev))
     setUpdatingStage(stageKey)
 
     try {
       const { error } = await supabase
         .from('production')
-        .update({ [stageKey]: newValue, updated_at: new Date().toISOString() })
+        .update({
+          [stageKey]: newValue,
+          [byField]: currentUserName,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', order.id)
         .eq('tenant_id', order.tenant_id)
 
       if (error) throw error
     } catch (err) {
       console.error('خطأ في تحديث المرحلة:', err)
-      // رجّع القيمة القديمة لو فشل التحديث في قاعدة البيانات
-      setOrder(prev => (prev ? { ...prev, [stageKey]: previousValue } : prev))
+      setOrder(prev => (prev ? { ...prev, [stageKey]: previousValue, [byField]: previousBy } : prev))
       setStageError('تعذر تحديث حالة المرحلة. تأكد من صلاحياتك وحاول مرة أخرى.')
     } finally {
       setUpdatingStage(null)
@@ -288,7 +303,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
 
   return (
     <div className="min-h-screen bg-[#08090A] p-6 text-[#F0EDE8]" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
-      {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black text-white mb-2">طلب</h1>
@@ -305,12 +319,10 @@ export default function OrderDetailClient({ id }: { id: string }) {
         </button>
       </div>
 
-      {/* Tabs */}
       <OrderTabs
         tabs={{
           details: (
             <div className="space-y-6">
-              {/* Financial Summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
                   <p className="text-xs text-gray-500 mb-2">الإجمالي</p>
@@ -330,7 +342,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
                 </div>
               </div>
 
-              {/* Order Info */}
               <div className="bg-[#111318] border border-white/5 rounded-lg p-6 space-y-4">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
@@ -380,7 +391,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
                 )}
               </div>
 
-              {/* الأصناف المطلوبة */}
               <div className="bg-[#111318] border border-white/5 rounded-lg p-6">
                 <p className="text-xs text-gray-500 mb-4">الأصناف المطلوبة {items.length > 0 && `(${items.length})`}</p>
                 {itemsLoading ? (
@@ -437,8 +447,9 @@ export default function OrderDetailClient({ id }: { id: string }) {
                 </div>
               )}
 
-              {PRODUCTION_STAGES.map(({ label, stage, icon }) => {
+              {PRODUCTION_STAGES.map(({ label, stage, byField, icon }) => {
                 const current = order[stage] || 'pending'
+                const byName = order[byField]
                 const isUpdating = updatingStage === stage
 
                 return (
@@ -446,11 +457,18 @@ export default function OrderDetailClient({ id }: { id: string }) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span>{icon}</span>
-                        <span className="font-semibold text-white">{label}</span>
+                        <div>
+                          <span className="font-semibold text-white block">{label}</span>
+                          {byName && (
+                            <span className="text-[11px] text-gray-500">
+                              👤 بواسطة: {byName}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => updateStage(stage)}
+                        onClick={() => updateStage(stage, byField)}
                         disabled={isUpdating}
                         className={`text-xs px-3 py-1.5 rounded-full font-bold transition cursor-pointer hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed ${stageBadgeClasses(current)}`}
                       >
