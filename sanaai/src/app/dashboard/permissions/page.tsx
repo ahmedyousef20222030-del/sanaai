@@ -318,10 +318,12 @@ export default function PermissionsPage() {
   async function savePagePermissions(user: AppUser) {
     setSavingPerms(user.id)
     try {
+      const tenantId = await getMyTenantId()
       const rows = ASSIGNABLE_PAGES.map(p => {
         const cell = pagePerms[user.id]?.[p.id] ?? EMPTY_CELL
         return {
           user_id: user.id,
+          tenant_id: tenantId,
           page_id: p.id,
           can_view: cell.can_view,
           can_create: cell.can_create,
@@ -364,8 +366,10 @@ export default function PermissionsPage() {
 
     setSavingPerms(user.id)
     try {
+      const tenantId = await getMyTenantId()
       const rows = ASSIGNABLE_PAGES.map(p => ({
         user_id: user.id,
+        tenant_id: tenantId,
         page_id: p.id,
         ...updatedForUser[p.id],
         updated_at: new Date().toISOString(),
