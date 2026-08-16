@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import ImpersonationBanner from '@/components/ImpersonationBanner'
 
 export const metadata: Metadata = {
   title: 'صَنَاعي',
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body style={{ fontFamily: "'Cairo', sans-serif" }}>
+        <ImpersonationBanner />
         {children}
       </body>
     </html>
