@@ -1,0 +1,96 @@
+/* الشكل العادي على الشاشة */
+.receipt-print {
+  width: 148mm;
+  margin: 0 auto;
+  padding: 12mm;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-family: "Cairo", "Tahoma", sans-serif;
+  background: #fff;
+  color: #111;
+}
+
+.receipt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #f97316;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+.receipt-header h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.order-id {
+  font-weight: bold;
+  color: #f97316;
+}
+
+.receipt-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px dashed #eee;
+  font-size: 13px;
+}
+
+.receipt-row .label {
+  color: #666;
+}
+
+.receipt-row .value {
+  font-weight: 600;
+}
+
+.receipt-row.address .value {
+  max-width: 60%;
+  text-align: left;
+}
+
+.receipt-row.status .value {
+  background: #fef3c7;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.receipt-footer {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #999;
+}
+
+/* ====== الجزء الأهم: إعدادات الطباعة ====== */
+@media print {
+  @page {
+    size: 148mm 210mm;
+    margin: 8mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .receipt-print,
+  .receipt-print * {
+    visibility: visible;
+  }
+
+  .receipt-print {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    border: none;
+    box-shadow: none;
+    margin: 0;
+    padding: 5mm;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
