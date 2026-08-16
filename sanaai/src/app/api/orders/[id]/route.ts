@@ -104,11 +104,14 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         .maybeSingle()
 
       if (!existingShipment) {
+        // bill_number عمود إجباري في جدول shipments وملوش قيمة افتراضية،
+        // فبنولّده تلقائيًا من رقم الطلب نفسه
         const { error: shipmentError } = await supabaseAdmin
           .from('shipments')
           .insert({
             tenant_id: user.tenantId,
             order_id: id,
+            bill_number: `SHP-${data.order_number}`,
           })
 
         // خطأ إنشاء الشحنة ما ينفعش يفشّل تحديث حالة الطلب نفسه، بس نسجله في الـ logs
