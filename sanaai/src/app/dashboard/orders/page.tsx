@@ -100,7 +100,12 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((o) => (
+                {filtered.map((o) => {
+                  // ⚠️ الطلب اتسلم للعميل بس لسه فيه مبلغ متبقي معلق تحصيله
+                  // (سواء عند شركة الشحن في حالة الدفع عند الاستلام، أو أي سبب تاني)
+                  const hasPendingCollection = o.status === 'تم التسليم' && Number(o.remaining_amount || 0) > 0
+
+                  return (
                   <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.03] transition cursor-pointer group" onClick={() => router.push(`/dashboard/orders/${o.id}`)}>
                     <td className="px-5 py-4 font-mono text-amber-400 text-xs font-bold">{o.order_number}</td>
                     <td className="px-5 py-4">
@@ -120,13 +125,26 @@ export default function OrdersPage() {
                       <div className="font-semibold text-white text-xs">{o.clients?.name || '—'}</div>
                       <div className="text-gray-600 text-[10px]">{o.clients?.phone}</div>
                     </td>
-                    <td className="px-5 py-4"><span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor[o.status] || 'bg-gray-500/20'}`}>{o.status}</span></td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor[o.status] || 'bg-gray-500/20'}`}>{o.status}</span>
+                        {hasPendingCollection && (
+                          <span
+                            className="text-[10px] px-2 py-0.5 rounded-full border bg-red-500/20 text-red-400 border-red-500/30 font-bold"
+                            title="الطلب اتسلم لكن المبلغ المتبقي لسه معلق تحصيله (شركة الشحن أو غيرها)"
+                          >
+                            ⚠ متبقي تحصيل
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className={`px-5 py-4 text-xs font-medium ${deliveryColor[o.delivery_status] || 'text-gray-400'}`}>{o.delivery_status || 'في الموعد'}</td>
                     <td className="px-5 py-4 text-red-400 font-bold text-xs">{Number(o.remaining_amount || 0).toLocaleString('ar-EG')} ج.م</td>
                     <td className="px-5 py-4 text-amber-400 font-bold text-xs">{Number(o.total_amount || 0).toLocaleString('ar-EG')} ج.م</td>
                     <td className="px-5 py-4 text-gray-600 text-[10px]">{new Date(o.created_at).toLocaleDateString('ar-EG')}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
