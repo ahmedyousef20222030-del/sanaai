@@ -76,6 +76,17 @@ export default function ShippingPage() {
     }
   }
 
+  function printShipment(id: string) {
+    const printWindow = window.open(
+      `/dashboard/shipping/${id}/print`,
+      '_blank',
+      'width=500,height=700'
+    )
+    if (!printWindow) {
+      alert('من فضلك اسمح بفتح النوافذ المنبثقة (popups) عشان تقدر تطبع')
+    }
+  }
+
   // ✅ قيم متوافقة مع CHECK constraint في السكيما v1.1
   const statusColor: Record<string, string> = {
     'في الموعد':   'bg-blue-500/20 text-blue-400 border-blue-500/30',
@@ -119,6 +130,13 @@ export default function ShippingPage() {
             <div key={s.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => printShipment(s.id)}
+                    title="طباعة الإيصال"
+                    className="w-10 h-10 rounded-lg bg-gray-700/50 flex items-center justify-center text-gray-300 hover:bg-gray-600/50 hover:text-white transition-all border border-white/10"
+                  >
+                    🖨️
+                  </button>
                   <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400 font-bold border border-amber-500/20">
                     🚚
                   </div>
