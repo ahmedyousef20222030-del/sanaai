@@ -37,6 +37,7 @@ type TenantUser = {
   full_name: string | null
   email: string | null
   role?: string | null
+  is_active?: boolean | null
 }
 
 const PLAN_STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -44,6 +45,19 @@ const PLAN_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   trial:     { label: 'تجريبي',    color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
   suspended: { label: 'موقوف',     color: 'bg-red-500/15 text-red-400 border-red-500/30' },
   cancelled: { label: 'ملغي',      color: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
+}
+
+const ROLE_OPTIONS = ['owner', 'employee', 'sales']
+
+// input[type=date] بياخد ويدي بصيغة yyyy-mm-dd، فبنحول من/لـ ISO timestamp
+function toDateInputValue(iso: string | null): string {
+  if (!iso) return ''
+  return new Date(iso).toISOString().slice(0, 10)
+}
+
+function dateInputToIso(dateStr: string): string | null {
+  if (!dateStr) return null
+  return new Date(dateStr + 'T00:00:00').toISOString()
 }
 
 export default function PlatformTenantsPage() {
@@ -58,6 +72,7 @@ export default function PlatformTenantsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [savingUserId, setSavingUserId] = useState<string | null>(null)
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
 
   useEffect(() => { loadAll() }, [])
@@ -83,10 +98,10 @@ export default function PlatformTenantsPage() {
         setOwners(ownerMap)
       }
 
-      // نجيب كل المستخدمين ببياناتهم الكاملة (مش بس tenant_id) عشان نعرض الأسماء والإيميلات
+      // نجيب كل المستخدمين ببياناتهم الكاملة (مش بس tenant_id) عشان نعرض الأسماء والإيميلات ونعدل الدور والتفعيل
       const { data: allUsers, error: uErr } = await supabase
         .from('users')
-        .select('id, tenant_id, full_name, email, role')
+        .select('id, tenant_id, full_name, email, role, is_active')
       if (uErr) throw uErr
 
       const counts: Record<string, number> = {}
@@ -139,6 +154,22 @@ export default function PlatformTenantsPage() {
       alert('تعذر تحديث الاشتراك: ' + err.message)
     } finally {
       setSavingId(null)
+    }
+  }
+
+  async function updateUserField(tenantId: string, userId: string, field: string, value: any) {
+    setSavingUserId(userId)
+    try {
+      const { error } = await supabase.from('users').update({ [field]: value }).eq('id', userId)
+      if (error) throw error
+      setTenantUsers(prev => ({
+        ...prev,
+        [tenantId]: (prev[tenantId] || []).map(u => u.id === userId ? { ...u, [field]: value } : u),
+      }))
+    } catch (err: any) {
+      alert('تعذر تحديث المستخدم: ' + err.message)
+    } finally {
+      setSavingUserId(null)
     }
   }
 
@@ -283,9 +314,16 @@ export default function PlatformTenantsPage() {
                       </div>
                       <div>
                         <label className="block text-[11px] text-gray-500 mb-1">نهاية الفترة التجريبية</label>
-                        <p className="text-xs text-gray-400 px-1 py-1.5">
-                          {t.trial_ends_at ? new Date(t.trial_ends_at).toLocaleDateString('ar-EG') : 'غير محددة'}
-                        </p>
+                        <input
+                          type="date"
+                          disabled={savingId === t.id}
+                          defaultValue={toDateInputValue(t.trial_ends_at)}
+                          onBlur={e => {
+                            const newIso = dateInputToIso(e.target.value)
+                            if (newIso !== t.trial_ends_at) updateTenantField(t.id, 'trial_ends_at', newIso)
+                          }}
+                          className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50 disabled:opacity-50 [color-scheme:dark]"
+                        />
                       </div>
                       <div>
                         <label className="block text-[11px] text-gray-500 mb-1">تاريخ الإنشاء</label>
@@ -330,9 +368,16 @@ export default function PlatformTenantsPage() {
                         </div>
                         <div>
                           <label className="block text-[11px] text-gray-500 mb-1">نهاية الفترة الحالية</label>
-                          <p className="text-xs text-gray-400 px-1 py-1.5">
-                            {sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('ar-EG') : '—'}
-                          </p>
+                          <input
+                            type="date"
+                            disabled={savingId === t.id}
+                            defaultValue={toDateInputValue(sub.current_period_end)}
+                            onBlur={e => {
+                              const newIso = dateInputToIso(e.target.value)
+                              if (newIso !== sub.current_period_end) updateSubscriptionField(sub, 'current_period_end', newIso)
+                            }}
+                            className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50 disabled:opacity-50 [color-scheme:dark]"
+                          />
                         </div>
                       </div>
                     ) : (
@@ -346,23 +391,46 @@ export default function PlatformTenantsPage() {
                       👥 المستخدمين المسجلين ({usersList.length})
                     </h3>
                     {usersList.length > 0 ? (
-                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                        {usersList.map(u => (
-                          <div
-                            key={u.id}
-                            className="flex items-center justify-between bg-[#0D1B2A] rounded-lg px-3 py-2 border border-white/5"
-                          >
-                            <div className="min-w-0">
-                              <div className="text-xs text-white truncate">{u.full_name || 'بدون اسم'}</div>
-                              <div className="text-[10px] text-gray-500 truncate">{u.email || '—'}</div>
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {usersList.map(u => {
+                          const isUserSaving = savingUserId === u.id
+                          const isActive = u.is_active !== false // نعتبره نشط لو القيمة مش موجودة أصلاً
+                          return (
+                            <div
+                              key={u.id}
+                              className={`bg-[#0D1B2A] rounded-lg px-3 py-2 border border-white/5 ${isUserSaving ? 'opacity-50' : ''} ${!isActive ? 'opacity-60' : ''}`}
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <div className="min-w-0">
+                                  <div className="text-xs text-white truncate">{u.full_name || 'بدون اسم'}</div>
+                                  <div className="text-[10px] text-gray-500 truncate">{u.email || '—'}</div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={u.role || ''}
+                                  disabled={isUserSaving}
+                                  onChange={e => updateUserField(t.id, u.id, 'role', e.target.value)}
+                                  className="flex-1 bg-[#111927] border border-white/10 rounded-md px-2 py-1 text-[10px] text-purple-300 outline-none focus:border-purple-500/50 disabled:opacity-50"
+                                >
+                                  {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                                <button
+                                  disabled={isUserSaving}
+                                  onClick={() => updateUserField(t.id, u.id, 'is_active', !isActive)}
+                                  className={`shrink-0 text-[10px] px-2 py-1 rounded-md border transition disabled:opacity-50 ${
+                                    isActive
+                                      ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30'
+                                      : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-green-500/10 hover:text-green-400 hover:border-green-500/30'
+                                  }`}
+                                  title={isActive ? 'إيقاف المستخدم' : 'تفعيل المستخدم'}
+                                >
+                                  {isActive ? 'نشط' : 'موقوف'}
+                                </button>
+                              </div>
                             </div>
-                            {u.role && (
-                              <span className="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                                {u.role}
-                              </span>
-                            )}
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     ) : (
                       <p className="text-xs text-gray-600">لا يوجد مستخدمين مسجلين تحت هذه الشركة</p>
