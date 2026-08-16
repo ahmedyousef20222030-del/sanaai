@@ -1,99 +1,169 @@
-import { NextRequest } from 'next/server'
-import { getCurrentUser } from '@/lib/server/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUser, checkPermission } from '@/lib/server/auth'
 import { supabaseAdmin } from '@/lib/server/supabase'
-import { paginationSchema } from '@/lib/server/validators'
+import { updateOrderSchema, updateOrderStatusSchema } from '@/lib/server/validators'
 import { Permission } from '@/lib/types'
 import { successResponse, handleError } from '@/lib/server/responses'
 import { NotFoundError } from '@/lib/errors'
 
-/**
- * GET /api/orders
- * Get all orders with pagination and filtering
- */
-export async function GET(request: NextRequest) {
+type Props = { params: Promise<{ id: string }> }
+
+export async function GET(request: NextRequest, { params }: Props) {
   try {
+    const { id } = await params
     const user = await getCurrentUser()
+    checkPermission(user, Permission.OrdersRead)
 
-    // Check permission
-    if (!user.permissions.includes(Permission.OrdersRead)) {
-      throw new Error('Insufficient permissions')
-    }
-
-    // Parse query parameters
-    const searchParams = request.nextUrl.searchParams
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = (page - 1) * limit
-
-    // Build query with tenant filter
-    let query = supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('orders')
-      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments, clients(name, phone, sector), assigned_user:users(full_name)', {
-        count: 'exact',
-      })
+      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments, clients(id, name, phone, sector, city, rating), assigned_user:users(id, full_name)')
+      .eq('id', id)
       .eq('tenant_id', user.tenantId)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1)
+      .single()
 
-    // Apply filters if provided
-    const status = searchParams.get('status')
-    if (status) {
-      query = query.eq('status', status)
-    }
-
-    const { data, error, count } = await query
-
-    if (error) throw error
-
-    const totalPages = Math.ceil((count || 0) / limit)
-
-    return successResponse({
-      data: data || [],
-      total: count || 0,
-      page,
-      pageSize: limit,
-      totalPages,
-    })
+    if (error || !data) throw new NotFoundError('Order')
+    return successResponse(data)
   } catch (error) {
     return handleError(error)
   }
 }
 
-/**
- * POST /api/orders
- * Create a new order
- */
-export async function POST(request: NextRequest) {
-  try {
-    const user = await getCurrentUser()
+// حالة الفاتورة بتتحدد حسب نسبة المبلغ المتبقي من إجمالي الطلب
+function computeInvoiceStatus(totalAmount: number, remainingAmount: number, paidAmount: number): string {
+  if (remainingAmount <= 0 && totalAmount > 0) return 'مدفوع'
+  if (paidAmount > 0) return 'جزئي'
+  return 'غير مدفوع'
+}
 
-    // Check permission
-    if (!user.permissions.includes(Permission.OrdersCreate)) {
-      throw new Error('Insufficient permissions')
-    }
+export async function PUT(request: NextRequest, { params }: Props) {
+  try {
+    const { id } = await params
+    const user = await getCurrentUser()
+    checkPermission(user, Permission.OrdersUpdate)
 
     const body = await request.json()
-
-    // TODO: Add Zod validation
-    // const validated = validateData(createOrderSchema, body)
-
-    // Add tenant ID to the order
-    const orderData = {
-      ...body,
-      tenant_id: user.tenantId,
-      created_by: user.id,
-    }
+    const validated = updateOrderSchema.partial().parse(body)
 
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .insert(orderData)
+      .update({ ...validated, updated_at: new Date().toISOString(), updated_by: user.id })
+      .eq('id', id)
+      .eq('tenant_id', user.tenantId)
       .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments')
       .single()
 
-    if (error) throw error
-    if (!data) throw new NotFoundError('Order')
+    if (error || !data) throw new NotFoundError('Order')
 
-    return successResponse(data, 201)
+    // ✅ لو المبالغ المالية اتغيرت (دفعة جديدة مثلاً)، نزامن الفاتورة المرتبطة بنفس الطلب
+    const touchedFinancialFields = ['total_amount', 'deposit_paid', 'remaining_amount'].some(f => f in validated)
+    if (touchedFinancialFields) {
+      const totalAmount = data.total_amount || 0
+      const paidAmount = data.deposit_paid || 0
+      const remainingAmount = data.remaining_amount ?? (totalAmount - paidAmount)
+
+      const { error: invoiceError } = await supabaseAdmin
+        .from('invoices')
+        .update({
+          total_amount: totalAmount,
+          paid_amount: paidAmount,
+          // remaining_amount عمود محسوب تلقائيًا في الداتابيز (generated column)، مينفعش نكتب فيه يدويًا
+          status: computeInvoiceStatus(totalAmount, remainingAmount, paidAmount),
+        })
+        .eq('order_id', id)
+        .eq('tenant_id', user.tenantId)
+
+      // خطأ تحديث الفاتورة ما ينفعش يفشّل تحديث الطلب نفسه، بس نسجله في الـ logs
+      if (invoiceError) {
+        console.error('Failed to sync invoice for order', id, invoiceError)
+      }
+    }
+
+    return successResponse(data)
+  } catch (error) {
+    return handleError(error)
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: Props) {
+  try {
+    const { id } = await params
+    const user = await getCurrentUser()
+    checkPermission(user, Permission.OrdersDelete)
+
+    const { error } = await supabaseAdmin
+      .from('orders')
+      .update({ deleted_at: new Date().toISOString(), deleted_by: user.id })
+      .eq('id', id)
+      .eq('tenant_id', user.tenantId)
+
+    if (error) throw error
+    return successResponse({ success: true, message: 'Order deleted' })
+  } catch (error) {
+    return handleError(error)
+  }
+}
+
+// حالة الطلب اللي لما نوصلها، لازم شحنة تتفتح تلقائيًا لو مفيش شحنة موجودة أصلاً لنفس الطلب
+const SHIPMENT_TRIGGER_STATUS = 'جاهز للشحن'
+
+export async function PATCH(request: NextRequest, { params }: Props) {
+  try {
+    const { id } = await params
+    const user = await getCurrentUser()
+    checkPermission(user, Permission.OrdersUpdate)
+
+    const body = await request.json()
+    const validated = updateOrderStatusSchema.parse(body)
+
+    const { data, error } = await supabaseAdmin
+      .from('orders')
+      .update({ status: validated.status, notes: validated.notes, updated_at: new Date().toISOString(), updated_by: user.id })
+      .eq('id', id)
+      .eq('tenant_id', user.tenantId)
+      .select('id, tenant_id, client_id, assigned_user_id, order_number, order_seq, details, sector, quantity, status, delivery_status, total_amount, deposit_paid, remaining_amount, order_date, expected_delivery, actual_delivery, week_number, created_at, updated_at, attachments')
+      .single()
+
+    if (error || !data) throw new NotFoundError('Order')
+
+    // ✅ لو الطلب دخل مرحلة "جاهز للشحن"، ننشئ صف شحنة تلقائيًا في جدول shipments
+    // (لو مفيش شحنة مسجلة له بالفعل، عشان منكررش الصف لو الحالة اتغيرت رايح وجاي)
+    if (validated.status === SHIPMENT_TRIGGER_STATUS) {
+      const { data: existingShipment } = await supabaseAdmin
+        .from('shipments')
+        .select('id')
+        .eq('order_id', id)
+        .eq('tenant_id', user.tenantId)
+        .maybeSingle()
+
+      if (!existingShipment) {
+        // بنجيب عنوان العميل عشان نحطه كعنوان تسليم افتراضي للشحنة
+        const { data: client } = await supabaseAdmin
+          .from('clients')
+          .select('address, city')
+          .eq('id', data.client_id)
+          .maybeSingle()
+
+        const shippingAddress = [client?.address, client?.city].filter(Boolean).join('، ') || null
+
+        // bill_number عمود إجباري في جدول shipments وملوش قيمة افتراضية،
+        // فبنولّده تلقائيًا من رقم الطلب نفسه
+        const { error: shipmentError } = await supabaseAdmin
+          .from('shipments')
+          .insert({
+            tenant_id: user.tenantId,
+            order_id: id,
+            bill_number: `SHP-${data.order_number}`,
+            shipping_address: shippingAddress,
+          })
+
+        // خطأ إنشاء الشحنة ما ينفعش يفشّل تحديث حالة الطلب نفسه، بس نسجله في الـ logs
+        if (shipmentError) {
+          console.error('Failed to auto-create shipment for order', id, shipmentError)
+        }
+      }
+    }
+
+    return successResponse(data)
   } catch (error) {
     return handleError(error)
   }
