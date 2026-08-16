@@ -71,6 +71,9 @@ export async function DELETE(request: NextRequest, { params }: Props) {
   }
 }
 
+// حالة الطلب اللي لما نوصلها، لازم شحنة تتفتح تلقائيًا لو مفيش شحنة موجودة أصلاً لنفس الطلب
+const SHIPMENT_TRIGGER_STATUS = 'جاهز للشحن'
+
 export async function PATCH(request: NextRequest, { params }: Props) {
   try {
     const { id } = await params
@@ -89,6 +92,32 @@ export async function PATCH(request: NextRequest, { params }: Props) {
       .single()
 
     if (error || !data) throw new NotFoundError('Order')
+
+    // ✅ لو الطلب دخل مرحلة "جاهز للشحن"، ننشئ صف شحنة تلقائيًا في جدول shipments
+    // (لو مفيش شحنة مسجلة له بالفعل، عشان منكررش الصف لو الحالة اتغيرت رايح وجاي)
+    if (validated.status === SHIPMENT_TRIGGER_STATUS) {
+      const { data: existingShipment } = await supabaseAdmin
+        .from('shipments')
+        .select('id')
+        .eq('order_id', id)
+        .eq('tenant_id', user.tenantId)
+        .maybeSingle()
+
+      if (!existingShipment) {
+        const { error: shipmentError } = await supabaseAdmin
+          .from('shipments')
+          .insert({
+            tenant_id: user.tenantId,
+            order_id: id,
+          })
+
+        // خطأ إنشاء الشحنة ما ينفعش يفشّل تحديث حالة الطلب نفسه، بس نسجله في الـ logs
+        if (shipmentError) {
+          console.error('Failed to auto-create shipment for order', id, shipmentError)
+        }
+      }
+    }
+
     return successResponse(data)
   } catch (error) {
     return handleError(error)
