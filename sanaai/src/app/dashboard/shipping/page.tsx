@@ -69,7 +69,8 @@ export default function ShippingPage() {
         .eq('id', id)
       
       if (error) throw error
-      setShipments(s => s.map(x => x.id === id ? { ...x, [field]: value } : x))
+      // نحدّث الـ state بنفس اسم العمود الحقيقي في الداتابيز (dbField) مش اسم الحقل في الواجهة (field)
+      setShipments(s => s.map(x => x.id === id ? { ...x, [dbField]: value } : x))
     } catch (err: any) {
       alert('خطأ في التحديث: ' + err.message)
     }
