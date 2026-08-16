@@ -104,6 +104,15 @@ export async function PATCH(request: NextRequest, { params }: Props) {
         .maybeSingle()
 
       if (!existingShipment) {
+        // بنجيب عنوان العميل عشان نحطه كعنوان تسليم افتراضي للشحنة
+        const { data: client } = await supabaseAdmin
+          .from('clients')
+          .select('address, city')
+          .eq('id', data.client_id)
+          .maybeSingle()
+
+        const shippingAddress = [client?.address, client?.city].filter(Boolean).join('، ') || null
+
         // bill_number عمود إجباري في جدول shipments وملوش قيمة افتراضية،
         // فبنولّده تلقائيًا من رقم الطلب نفسه
         const { error: shipmentError } = await supabaseAdmin
@@ -112,6 +121,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
             tenant_id: user.tenantId,
             order_id: id,
             bill_number: `SHP-${data.order_number}`,
+            shipping_address: shippingAddress,
           })
 
         // خطأ إنشاء الشحنة ما ينفعش يفشّل تحديث حالة الطلب نفسه، بس نسجله في الـ logs
