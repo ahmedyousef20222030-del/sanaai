@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 type Item = {
   id: string; name: string; sku: string | null; category: string | null;
   section: string | null; size: string | null; color: string | null;
-  custom_detail: string | null;
+  custom_detail: string | null; image_url: string | null;
   unit: string; current_stock: number; selling_price: number; min_stock: number;
 }
 
@@ -27,9 +27,11 @@ function colorHex(name: string | null) {
   return COLOR_PRESETS.find(c => c.name === name)?.hex || '#888888'
 }
 
+type FormMode = 'add' | 'addColor' | 'edit'
+
 const EMPTY_FORM = {
   name: '', sku: '', category: '', section: 'يونيفورم',
-  size: '', color: '', customColor: '', custom_detail: '',
+  size: '', color: '', customColor: '', custom_detail: '', image_url: '',
   unit: 'قطعة', current_stock: '', selling_price: '', min_stock: '',
 }
 
@@ -37,9 +39,12 @@ export default function InventoryPage() {
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [formMode, setFormMode] = useState<FormMode>('add')
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [lowStockOnly, setLowStockOnly] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
 
   const [form, setForm] = useState(EMPTY_FORM)
@@ -58,7 +63,50 @@ export default function InventoryPage() {
     setLoading(false)
   }
 
-  async function handleAdd() {
+  function openAddForm() {
+    setForm(EMPTY_FORM)
+    setFormMode('add')
+    setEditingId(null)
+    setShowForm(true)
+  }
+
+  function openAddColorForm(groupName: string, sampleImage: string | null) {
+    setForm({ ...EMPTY_FORM, name: groupName, image_url: sampleImage || '' })
+    setFormMode('addColor')
+    setEditingId(null)
+    setShowForm(true)
+  }
+
+  function openEditForm(item: Item) {
+    const isPreset = COLOR_PRESETS.some(c => c.name === item.color)
+    setForm({
+      name: item.name,
+      sku: item.sku || '',
+      category: item.category || '',
+      section: item.section || 'يونيفورم',
+      size: item.size || '',
+      color: item.color ? (isPreset ? item.color : '__custom__') : '',
+      customColor: item.color && !isPreset ? item.color : '',
+      custom_detail: item.custom_detail || '',
+      image_url: item.image_url || '',
+      unit: item.unit || 'قطعة',
+      current_stock: String(item.current_stock ?? ''),
+      selling_price: String(item.selling_price ?? ''),
+      min_stock: String(item.min_stock ?? ''),
+    })
+    setFormMode('edit')
+    setEditingId(item.id)
+    setShowForm(true)
+  }
+
+  function closeForm() {
+    setShowForm(false)
+    setForm(EMPTY_FORM)
+    setFormMode('add')
+    setEditingId(null)
+  }
+
+  async function handleSave() {
     if (!form.name.trim() || !form.current_stock) { alert('يرجى ملء اسم المنتج والكمية'); return }
 
     const stock = Number(form.current_stock)
@@ -74,37 +122,55 @@ export default function InventoryPage() {
 
     setSaving(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('يجب تسجيل الدخول أولاً')
+      if (formMode === 'edit' && editingId) {
+        const { error } = await supabase.from('inventory').update({
+          name: form.name.trim(),
+          sku: form.sku.trim() || null,
+          category: form.category.trim() || null,
+          section: form.section,
+          size: form.size || null,
+          color: finalColor || null,
+          custom_detail: form.custom_detail.trim() || null,
+          image_url: form.image_url.trim() || null,
+          unit: form.unit,
+          current_stock: stock,
+          selling_price: price,
+          min_stock: minStock,
+        }).eq('id', editingId)
+        if (error) throw error
+      } else {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error('يجب تسجيل الدخول أولاً')
 
-      const { data: me, error: meErr } = await supabase
-        .from('users')
-        .select('tenant_id')
-        .eq('id', user.id)
-        .single()
+        const { data: me, error: meErr } = await supabase
+          .from('users')
+          .select('tenant_id')
+          .eq('id', user.id)
+          .single()
 
-      if (meErr || !me?.tenant_id) throw new Error('تعذر تحديد بيانات المنشأة')
+        if (meErr || !me?.tenant_id) throw new Error('تعذر تحديد بيانات المنشأة')
 
-      // ملاحظة: اسم الصنف هنا هو اسم المنتج الأساسي بدون اللون (مثال: "تيشيرت نص كم")
-      // واللون بيتسجل في عموده الخاص، عشان التجميع في الجدول يشتغل صح
-      const { error } = await supabase.from('inventory').insert({
-        tenant_id: me.tenant_id,
-        name: form.name.trim(),
-        sku: form.sku.trim() || null,
-        category: form.category.trim() || null,
-        section: form.section,
-        size: form.size || null,
-        color: finalColor || null,
-        custom_detail: form.custom_detail.trim() || null,
-        unit: form.unit,
-        current_stock: stock,
-        selling_price: price,
-        min_stock: minStock,
-      })
-      if (error) throw error
+        // ملاحظة: اسم الصنف هنا هو اسم المنتج الأساسي بدون اللون (مثال: "تيشيرت نص كم")
+        // واللون بيتسجل في عموده الخاص، عشان التجميع في الجدول يشتغل صح
+        const { error } = await supabase.from('inventory').insert({
+          tenant_id: me.tenant_id,
+          name: form.name.trim(),
+          sku: form.sku.trim() || null,
+          category: form.category.trim() || null,
+          section: form.section,
+          size: form.size || null,
+          color: finalColor || null,
+          custom_detail: form.custom_detail.trim() || null,
+          image_url: form.image_url.trim() || null,
+          unit: form.unit,
+          current_stock: stock,
+          selling_price: price,
+          min_stock: minStock,
+        })
+        if (error) throw error
+      }
 
-      setShowForm(false)
-      setForm(EMPTY_FORM)
+      closeForm()
       load()
     } catch (err: any) {
       alert('خطأ: ' + err.message)
@@ -139,22 +205,33 @@ export default function InventoryPage() {
   // تجميع الأصناف حسب اسم المنتج الأساسي، وكل لون بيبقى صف فرعي جواه
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const filtered = q ? items.filter(i => i.name.toLowerCase().includes(q)) : items
+    let filtered = q ? items.filter(i => i.name.toLowerCase().includes(q)) : items
+
     const map = new Map<string, Item[]>()
     filtered.forEach(i => {
       const key = i.name.trim()
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(i)
     })
-    return Array.from(map.entries())
-      .map(([name, variants]) => ({
-        name,
-        variants,
-        totalStock: variants.reduce((s, v) => s + v.current_stock, 0),
-        hasLowStock: variants.some(v => v.current_stock <= v.min_stock),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'ar'))
-  }, [items, search])
+
+    let result = Array.from(map.entries()).map(([name, variants]) => ({
+      name,
+      variants,
+      totalStock: variants.reduce((s, v) => s + v.current_stock, 0),
+      hasLowStock: variants.some(v => v.current_stock <= v.min_stock),
+      image: variants.find(v => v.image_url)?.image_url || null,
+    }))
+
+    if (lowStockOnly) result = result.filter(g => g.hasLowStock)
+
+    // المنتجات اللي فيها مخزون منخفض تطلع فوق، وبعدين ترتيب أبجدي
+    result.sort((a, b) => {
+      if (a.hasLowStock !== b.hasLowStock) return a.hasLowStock ? -1 : 1
+      return a.name.localeCompare(b.name, 'ar')
+    })
+
+    return result
+  }, [items, search, lowStockOnly])
 
   function toggleGroup(name: string) {
     setOpenGroups(v => ({ ...v, [name]: !v[name] }))
@@ -167,7 +244,7 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-black text-white">📦 إدارة المخزون</h1>
           <p className="text-sm text-gray-500 mt-1">{items.length} صنف مسجل في المخزن · {groups.length} منتج</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20">
+        <button onClick={openAddForm} className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20">
           ➕ إضافة صنف جديد
         </button>
       </div>
@@ -185,7 +262,7 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <div className="mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <input
           type="text"
           placeholder="ابحث عن منتج..."
@@ -193,12 +270,23 @@ export default function InventoryPage() {
           onChange={e => setSearch(e.target.value)}
           className="w-full sm:w-80 bg-[#111927] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
         />
+        <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={lowStockOnly}
+            onChange={e => setLowStockOnly(e.target.checked)}
+            className="accent-amber-500"
+          />
+          اظهار المخزون المنخفض فقط
+        </label>
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowForm(false)}>
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={closeForm}>
           <div className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-2xl w-full shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-amber-400 mb-4">➕ إضافة صنف للمخزن</h2>
+            <h2 className="text-lg font-bold text-amber-400 mb-4">
+              {formMode === 'edit' ? '✏️ تعديل الصنف' : formMode === 'addColor' ? `🎨 إضافة لون جديد لـ "${form.name}"` : '➕ إضافة صنف للمخزن'}
+            </h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="sm:col-span-2">
                 <label htmlFor="item-name" className="block text-xs text-gray-500 mb-1">اسم المنتج الأساسي (بدون اللون) *</label>
@@ -206,8 +294,9 @@ export default function InventoryPage() {
                   id="item-name"
                   placeholder="مثال: تيشيرت نص كم"
                   value={form.name}
+                  disabled={formMode === 'addColor'}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
+                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none disabled:opacity-60"
                 />
               </div>
               <div>
@@ -324,13 +413,25 @@ export default function InventoryPage() {
                   className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
                 />
               </div>
+              <div className="sm:col-span-3">
+                <label htmlFor="item-image" className="block text-xs text-gray-500 mb-1">
+                  رابط صورة المنتج (اختياري، بتتعرض جنب اسم المنتج في القايمة)
+                </label>
+                <input
+                  id="item-image"
+                  placeholder="https://..."
+                  value={form.image_url}
+                  onChange={e => setForm(f => ({ ...f, image_url: e.target.value }))}
+                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
+                />
+              </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button onClick={handleAdd} disabled={saving} className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50">
-                {saving ? 'جاري الحفظ...' : '✅ حفظ الصنف'}
+              <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50">
+                {saving ? 'جاري الحفظ...' : formMode === 'edit' ? '✅ حفظ التعديلات' : '✅ حفظ الصنف'}
               </button>
               <button
-                onClick={() => { setShowForm(false); setForm(EMPTY_FORM) }}
+                onClick={closeForm}
                 className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition"
               >
                 إلغاء
@@ -354,12 +455,14 @@ export default function InventoryPage() {
             const isOpen = !!openGroups[group.name]
             return (
               <div key={group.name} className="bg-[#111927] rounded-2xl border border-white/5 shadow-2xl overflow-hidden">
-                <button
-                  onClick={() => toggleGroup(group.name)}
-                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/[0.02] transition text-right"
-                >
-                  <div className="flex items-center gap-3">
+                <div className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/[0.02] transition">
+                  <button onClick={() => toggleGroup(group.name)} className="flex items-center gap-3 text-right flex-1">
                     <span className={`text-gray-500 text-xs transition-transform ${isOpen ? 'rotate-0' : '-rotate-90'}`}>▼</span>
+                    {group.image ? (
+                      <img src={group.image} alt={group.name} className="w-9 h-9 rounded-lg object-cover border border-white/10" />
+                    ) : (
+                      <span className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-sm">👕</span>
+                    )}
                     <span className="font-bold text-white">{group.name}</span>
                     <span className="text-[11px] bg-amber-500/10 text-amber-400 px-2.5 py-1 rounded-full border border-amber-500/20">
                       {group.variants.length} لون
@@ -369,9 +472,17 @@ export default function InventoryPage() {
                         مخزون منخفض
                       </span>
                     )}
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-500">إجمالي المخزون: {group.totalStock}</span>
+                    <button
+                      onClick={() => openAddColorForm(group.name, group.image)}
+                      className="text-[11px] px-2.5 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition"
+                    >
+                      + لون جديد
+                    </button>
                   </div>
-                  <span className="text-xs text-gray-500">إجمالي المخزون: {group.totalStock}</span>
-                </button>
+                </div>
 
                 {isOpen && (
                   <div className="border-t border-white/5 px-5 py-3">
@@ -423,14 +534,23 @@ export default function InventoryPage() {
                             </td>
                             <td className="py-3 text-gray-500 text-xs">{item.min_stock} {item.unit}</td>
                             <td className="py-3">
-                              <button
-                                onClick={() => deleteItem(item.id)}
-                                disabled={deletingId === item.id}
-                                aria-label={`حذف ${item.name} ${item.color || ''}`}
-                                className="text-red-400 hover:text-red-300 text-xs disabled:opacity-40"
-                              >
-                                {deletingId === item.id ? '...' : '🗑️'}
-                              </button>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => openEditForm(item)}
+                                  aria-label={`تعديل ${item.name} ${item.color || ''}`}
+                                  className="text-gray-400 hover:text-amber-400 text-xs"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => deleteItem(item.id)}
+                                  disabled={deletingId === item.id}
+                                  aria-label={`حذف ${item.name} ${item.color || ''}`}
+                                  className="text-red-400 hover:text-red-300 text-xs disabled:opacity-40"
+                                >
+                                  {deletingId === item.id ? '...' : '🗑️'}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
