@@ -145,6 +145,11 @@ export default function OrderDetailClient({ id }: { id: string }) {
   })
   const [editItems, setEditItems] = useState<OrderItem[]>([])
 
+  // --- Delete mode state ---
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
   useEffect(() => {
     loadData()
   }, [])
@@ -439,6 +444,50 @@ export default function OrderDetailClient({ id }: { id: string }) {
     }
   }
 
+  // --- Delete mode handlers ---
+  async function deleteOrder() {
+    if (!order) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      // حذف السجلات المرتبطة أولاً حتى لو مفيش cascade على الداتابيز
+      const { error: complaintsErr } = await supabase
+        .from('complaints')
+        .delete()
+        .eq('order_id', order.order_id)
+        .eq('tenant_id', order.tenant_id)
+      if (complaintsErr) throw complaintsErr
+
+      const { error: itemsErr } = await supabase
+        .from('order_items')
+        .delete()
+        .eq('order_id', order.order_id)
+        .eq('tenant_id', order.tenant_id)
+      if (itemsErr) throw itemsErr
+
+      const { error: productionErr } = await supabase
+        .from('production')
+        .delete()
+        .eq('id', order.id)
+        .eq('tenant_id', order.tenant_id)
+      if (productionErr) throw productionErr
+
+      const { error: orderErr } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', order.order_id)
+        .eq('tenant_id', order.tenant_id)
+      if (orderErr) throw orderErr
+
+      router.push('/orders')
+    } catch (err) {
+      console.error('خطأ في حذف الطلب:', err)
+      setDeleteError(err instanceof Error ? err.message : 'فشل حذف الطلب')
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#08090A] flex items-center justify-center">
@@ -501,6 +550,12 @@ export default function OrderDetailClient({ id }: { id: string }) {
                 ✎ تعديل
               </button>
               <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-4 py-2 text-sm bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg font-bold hover:bg-red-500/20 transition"
+              >
+                🗑 حذف
+              </button>
+              <button
                 onClick={() => router.back()}
                 className="px-4 py-2 text-sm border border-white/10 rounded-lg text-gray-400 hover:text-[#D4A843] transition"
               >
@@ -514,6 +569,12 @@ export default function OrderDetailClient({ id }: { id: string }) {
       {saveError && (
         <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
           {saveError}
+        </div>
+      )}
+
+      {deleteError && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
+          {deleteError}
         </div>
       )}
 
@@ -887,6 +948,33 @@ export default function OrderDetailClient({ id }: { id: string }) {
           ),
         }}
       />
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111318] border border-white/10 rounded-xl p-5 max-w-sm w-full">
+            <h3 className="text-white font-bold text-lg mb-2">تأكيد الحذف</h3>
+            <p className="text-sm text-gray-400 mb-5">
+              هل أنت متأكد من حذف طلب "{order.customer_name}"؟ لا يمكن التراجع عن هذا الإجراء، وسيتم حذف كل الأصناف والشكاوى المرتبطة به.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm border border-white/10 rounded-lg text-gray-400 hover:text-white transition disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={deleteOrder}
+                disabled={deleting}
+                className="px-4 py-2 text-sm bg-red-500 text-white rounded-lg font-bold hover:opacity-90 transition disabled:opacity-50"
+              >
+                {deleting ? 'جاري الحذف...' : 'تأكيد الحذف'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
