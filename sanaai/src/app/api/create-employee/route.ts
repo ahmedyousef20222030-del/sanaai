@@ -17,38 +17,13 @@ const createEmployeeSchema = z.object({
   start_date: z.string().optional(),
   monthly_target: z.number().nonnegative().optional(),
   target_type: z.enum(TARGET_TYPES).optional(),
-  // Optional fine-grained permission flags the creator may set explicitly.
-  // Anything omitted defaults to a safe minimum below.
   can_edit_production: z.boolean().optional(),
   can_edit_orders: z.boolean().optional(),
   can_manage_sales: z.boolean().optional(),
   can_manage_users: z.boolean().optional(),
   can_view_clients: z.boolean().optional(),
-  // 🔒 tenant_id is intentionally NOT accepted here. It is always taken
-  // from the authenticated caller's own tenant (see below) — never from
-  // the request body — otherwise anyone could create an account inside
-  // a tenant they don't belong to.
 })
 
-/**
- * POST /api/create-employee
- * Creates (or re-provisions) an employee account inside the CALLER's own
- * tenant.
- *
- * 🔒 Security properties of this endpoint:
- * - Requires a valid session (getCurrentUser) — previously this endpoint
- *   had no auth check at all and was fully public.
- * - Requires Permission.UsersCreate, derived from the caller's real
- *   `can_manage_users` column — previously anyone, authenticated or not,
- *   could call it.
- * - tenant_id always comes from the caller's own session, never from the
- *   request body.
- * - Only an existing Owner may create another Owner or Admin account —
- *   an HR employee with can_manage_users=true should be able to onboard
- *   regular staff, but not mint themselves a co-owner.
- * - Cleans up the "ghost" tenant that `handle_new_user` unavoidably
- *   creates whenever a brand-new auth user is inserted (see note below).
- */
 export async function POST(req: NextRequest) {
   try {
     const caller = await getCurrentUser()
@@ -65,6 +40,24 @@ export async function POST(req: NextRequest) {
     }
 
     const tenantId = caller.tenantId
+
+    // ✅ لو الهدف الشهري مش متبعت يدويًا، نجيبه تلقائيًا حسب القسم من جدول department_targets
+    let monthlyTarget = validated.monthly_target
+    let targetType = validated.target_type
+
+    if ((monthlyTarget === undefined || targetType === undefined) && validated.department) {
+      const { data: deptTarget } = await supabaseAdmin
+        .from('department_targets')
+        .select('monthly_target, target_type')
+        .eq('tenant_id', tenantId)
+        .eq('department', validated.department)
+        .maybeSingle()
+
+      if (deptTarget) {
+        if (monthlyTarget === undefined) monthlyTarget = deptTarget.monthly_target
+        if (targetType === undefined) targetType = deptTarget.target_type as any
+      }
+    }
 
     const { data: existingUsers, error: listErr } = await supabaseAdmin.auth.admin.listUsers()
     if (listErr) throw new ValidationError('تعذر التحقق من البريد الإلكتروني: ' + listErr.message)
@@ -89,9 +82,6 @@ export async function POST(req: NextRequest) {
       createdBrandNewAuthUser = true
     }
 
-    // This upsert is what actually places the employee in the CALLER's
-    // tenant with the intended role/permissions — it overrides whatever
-    // handle_new_user may have just inserted (see cleanup note below).
     const { data: user, error: dbError } = await supabaseAdmin
       .from('users')
       .upsert(
@@ -105,8 +95,8 @@ export async function POST(req: NextRequest) {
           department: validated.department || null,
           job_title: validated.job_title || null,
           start_date: validated.start_date || null,
-          monthly_target: validated.monthly_target || 0,
-          target_type: validated.target_type || 'طلبات',
+          monthly_target: monthlyTarget || 0,
+          target_type: targetType || 'طلبات',
           is_active: true,
           target_actual: 0,
           can_edit_production: validated.can_edit_production ?? false,
@@ -122,19 +112,24 @@ export async function POST(req: NextRequest) {
 
     if (dbError) throw new ValidationError(dbError.message)
 
-    // 🧹 IMPORTANT: supabaseAdmin.auth.admin.createUser() inserts a row
-    // into auth.users, which unconditionally fires the `handle_new_user`
-    // trigger — the same trigger that powers self-service signup. That
-    // trigger always provisions a BRAND-NEW tenant (with this user as its
-    // 'owner') regardless of the fact that we actually want this person
-    // attached to the CALLER's existing tenant instead.
-    //
-    // The upsert above already corrected `users.tenant_id`/`role` to the
-    // right values, so at this point the spurious tenant the trigger made
-    // is a harmless-looking but real orphan row (dangling `owner_id`,
-    // nobody's `users.tenant_id` points to it anymore). We delete it here
-    // — AFTER the upsert above, specifically so nothing still references
-    // it and this delete can't fail on a foreign-key/ordering issue.
+    // ✅ تسجيل تلقائي في جدول employees (مرتبط بنفس حساب الدخول عن طريق user_id)
+    const { error: empError } = await supabaseAdmin
+      .from('employees')
+      .upsert(
+        {
+          user_id: userId,
+          tenant_id: tenantId,
+          name: validated.full_name,
+          phone: validated.phone || null,
+          role: validated.role,
+        },
+        { onConflict: 'user_id' },
+      )
+
+    if (empError) {
+      console.error('Failed to auto-register employee for user', userId, empError)
+    }
+
     if (createdBrandNewAuthUser) {
       await supabaseAdmin.from('tenants').delete().eq('owner_id', userId)
     }
