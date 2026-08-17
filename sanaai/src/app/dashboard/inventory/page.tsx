@@ -5,11 +5,13 @@ import { supabase } from '@/lib/supabase'
 type Item = {
   id: string; name: string; sku: string | null; category: string | null;
   section: string | null; size: string | null; color: string | null;
+  color_hex: string | null;
   custom_detail: string | null; image_url: string | null;
   unit: string; current_stock: number; selling_price: number; min_stock: number;
 }
 
-// ألوان جاهزة عشان التجميع يبقى متسق - لو محتاج لون مش موجود اكتبه في "لون آخر"
+// ألوان جاهزة عشان التجميع يبقى متسق - لو اللون مش في القايمة، اختار "لون آخر"
+// وحدد لونه بالظبط من منتقي الألوان، وهيتسجل ويتعرض صح برضو
 const COLOR_PRESETS: { name: string; hex: string }[] = [
   { name: 'أسود', hex: '#1a1a1a' },
   { name: 'أبيض', hex: '#eeeeee' },
@@ -21,9 +23,28 @@ const COLOR_PRESETS: { name: string; hex: string }[] = [
   { name: 'أخضر', hex: '#2e7d32' },
   { name: 'كحلي', hex: '#0d1b3e' },
   { name: 'بني', hex: '#6d4c31' },
+  { name: 'فوشيا', hex: '#e4007c' },
+  { name: 'وردي', hex: '#f48fb1' },
+  { name: 'بنفسجي', hex: '#6a1b9a' },
+  { name: 'موف', hex: '#b39ddb' },
+  { name: 'برتقالي', hex: '#fb8c00' },
+  { name: 'فضي', hex: '#c0c0c0' },
+  { name: 'ذهبي', hex: '#d4af37' },
+  { name: 'تركواز', hex: '#26c6da' },
+  { name: 'فيروزي', hex: '#40e0d0' },
+  { name: 'عنابي', hex: '#7b1f1f' },
+  { name: 'خمري', hex: '#800020' },
+  { name: 'زيتي', hex: '#808000' },
+  { name: 'سماوي', hex: '#87ceeb' },
+  { name: 'كريمي', hex: '#fff3d6' },
+  { name: 'نحاسي', hex: '#b87333' },
+  { name: 'بترولي', hex: '#0f4c5c' },
 ]
 
-function colorHex(name: string | null) {
+// بياخد لون العنصر: لو له لون مخصص محدد بالضبط (color_hex) يستخدمه،
+// وإلا يدور على اسمه في القايمة الجاهزة، وإلا رمادي افتراضي
+function colorHex(name: string | null, customHex?: string | null) {
+  if (customHex) return customHex
   return COLOR_PRESETS.find(c => c.name === name)?.hex || '#888888'
 }
 
@@ -31,7 +52,7 @@ type FormMode = 'add' | 'addColor' | 'edit'
 
 const EMPTY_FORM = {
   name: '', sku: '', category: '', section: 'يونيفورم',
-  size: '', color: '', customColor: '', custom_detail: '', image_url: '',
+  size: '', color: '', customColor: '', customColorHex: '#888888', custom_detail: '', image_url: '',
   unit: 'قطعة', current_stock: '', selling_price: '', min_stock: '',
 }
 
@@ -87,6 +108,7 @@ export default function InventoryPage() {
       size: item.size || '',
       color: item.color ? (isPreset ? item.color : '__custom__') : '',
       customColor: item.color && !isPreset ? item.color : '',
+      customColorHex: item.color_hex || '#888888',
       custom_detail: item.custom_detail || '',
       image_url: item.image_url || '',
       unit: item.unit || 'قطعة',
@@ -119,6 +141,7 @@ export default function InventoryPage() {
     }
 
     const finalColor = form.color === '__custom__' ? form.customColor.trim() : form.color
+    const finalColorHex = form.color === '__custom__' ? form.customColorHex : null
 
     setSaving(true)
     try {
@@ -130,6 +153,7 @@ export default function InventoryPage() {
           section: form.section,
           size: form.size || null,
           color: finalColor || null,
+          color_hex: finalColorHex,
           custom_detail: form.custom_detail.trim() || null,
           image_url: form.image_url.trim() || null,
           unit: form.unit,
@@ -160,6 +184,7 @@ export default function InventoryPage() {
           section: form.section,
           size: form.size || null,
           color: finalColor || null,
+          color_hex: finalColorHex,
           custom_detail: form.custom_detail.trim() || null,
           image_url: form.image_url.trim() || null,
           unit: form.unit,
@@ -331,10 +356,10 @@ export default function InventoryPage() {
               <div>
                 <label htmlFor="item-color" className="block text-xs text-gray-500 mb-1">اللون</label>
                 <div className="flex items-center gap-2">
-                  {form.color && form.color !== '__custom__' && (
+                  {form.color && (
                     <span
                       className="w-6 h-6 rounded-full border border-white/20 shrink-0"
-                      style={{ background: colorHex(form.color) }}
+                      style={{ background: form.color === '__custom__' ? form.customColorHex : colorHex(form.color) }}
                     />
                   )}
                   <select
@@ -349,12 +374,21 @@ export default function InventoryPage() {
                   </select>
                 </div>
                 {form.color === '__custom__' && (
-                  <input
-                    placeholder="اكتب اسم اللون"
-                    value={form.customColor}
-                    onChange={e => setForm(f => ({ ...f, customColor: e.target.value }))}
-                    className="w-full mt-2 bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
-                  />
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="color"
+                      value={form.customColorHex}
+                      onChange={e => setForm(f => ({ ...f, customColorHex: e.target.value }))}
+                      className="w-9 h-9 shrink-0 rounded-lg border border-white/10 bg-transparent cursor-pointer"
+                      aria-label="حدد لون الصنف بالضبط"
+                    />
+                    <input
+                      placeholder="اكتب اسم اللون"
+                      value={form.customColor}
+                      onChange={e => setForm(f => ({ ...f, customColor: e.target.value }))}
+                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
+                    />
+                  </div>
                 )}
               </div>
               <div>
@@ -501,7 +535,7 @@ export default function InventoryPage() {
                               <div className="flex items-center gap-2">
                                 <span
                                   className="w-4 h-4 rounded-full border border-white/20 shrink-0"
-                                  style={{ background: colorHex(item.color) }}
+                                  style={{ background: colorHex(item.color, item.color_hex) }}
                                 />
                                 <span className="text-white">{item.color || '—'}</span>
                               </div>
