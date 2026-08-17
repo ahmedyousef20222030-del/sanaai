@@ -40,7 +40,19 @@ interface ProductionOrder {
   updated_at: string
   tenant_id: string
   order_id: string
+  client_id?: string | null
   attachments?: string[]
+}
+
+interface OrderItem {
+  id: string | null
+  name: string
+  size?: string | null
+  color?: string | null
+  quantity: number | string
+  unit_price: number | string
+  total_price?: number
+  source?: string | null
 }
 
 type StageKey = 'stage_design' | 'stage_cut' | 'stage_sew' | 'stage_print' | 'stage_pack'
@@ -97,6 +109,9 @@ function stageBadgeLabel(current: string) {
   return '⏳ بانتظار'
 }
 
+const inputClass =
+  'w-full bg-[#0B0D10] border border-white/10 rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#D4A843]/60'
+
 export default function OrderDetailClient({ id }: { id: string }) {
   const router = useRouter()
   const [order, setOrder] = useState<ProductionOrder | null>(null)
@@ -106,12 +121,29 @@ export default function OrderDetailClient({ id }: { id: string }) {
   const [complaints, setComplaints] = useState<any[]>([])
   const [complaintsLoading, setComplaintsLoading] = useState(true)
 
-  const [items, setItems] = useState<any[]>([])
+  const [items, setItems] = useState<OrderItem[]>([])
   const [itemsLoading, setItemsLoading] = useState(true)
 
   const [updatingStage, setUpdatingStage] = useState<StageKey | null>(null)
   const [stageError, setStageError] = useState<string | null>(null)
   const [currentUserName, setCurrentUserName] = useState<string>('مستخدم')
+
+  // --- Edit mode state ---
+  const [editMode, setEditMode] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({
+    customer_name: '',
+    phone: '',
+    address: '',
+    city: '',
+    order_date: '',
+    end_date: '',
+    sector: '',
+    quantity: '' as string | number,
+    notes: '',
+  })
+  const [editItems, setEditItems] = useState<OrderItem[]>([])
 
   useEffect(() => {
     loadData()
@@ -154,10 +186,12 @@ export default function OrderDetailClient({ id }: { id: string }) {
             week_number,
             attachments,
             assigned_user_id,
+            client_id,
             users:assigned_user_id (
               full_name
             ),
             clients (
+              id,
               name,
               phone,
               address,
@@ -176,6 +210,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
       const mapped: ProductionOrder = {
         id: data.id,
         order_id: id,
+        client_id: data.orders?.client_id || data.orders?.clients?.id || null,
         customer_name: data.orders?.clients?.name || '—',
         phone: data.orders?.clients?.phone,
         order_date: data.orders?.order_date || '',
@@ -211,6 +246,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
       }
 
       setOrder(mapped)
+      setEditMode(false)
       loadComplaints(me.tenant_id)
       loadItems(me.tenant_id)
     } catch (err) {
@@ -276,6 +312,133 @@ export default function OrderDetailClient({ id }: { id: string }) {
     }
   }
 
+  // --- Edit mode handlers ---
+  function startEdit() {
+    if (!order) return
+    setSaveError(null)
+    setEditForm({
+      customer_name: order.customer_name === '—' ? '' : order.customer_name,
+      phone: order.phone || '',
+      address: order.address || '',
+      city: order.city || '',
+      order_date: order.order_date ? order.order_date.split('T')[0] : '',
+      end_date: order.end_date ? order.end_date.split('T')[0] : '',
+      sector: order.sector || '',
+      quantity: order.quantity ?? '',
+      notes: order.notes || '',
+    })
+    setEditItems(items.map(it => ({ ...it })))
+    setEditMode(true)
+  }
+
+  function cancelEdit() {
+    setEditMode(false)
+    setSaveError(null)
+  }
+
+  function updateEditItem(index: number, field: keyof OrderItem, value: string) {
+    setEditItems(prev => prev.map((it, i) => (i === index ? { ...it, [field]: value } : it)))
+  }
+
+  function addEditItem() {
+    setEditItems(prev => [...prev, { id: null, name: '', size: '', color: '', quantity: 1, unit_price: 0 }])
+  }
+
+  function removeEditItem(index: number) {
+    setEditItems(prev => prev.filter((_, i) => i !== index))
+  }
+
+  async function saveEdit() {
+    if (!order) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const cleanItems = editItems.filter(it => (it.name || '').trim() !== '')
+      const newTotal = cleanItems.reduce(
+        (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+        0
+      )
+      const newRemaining = newTotal - (order.paid || 0)
+
+      const { error: orderErr } = await supabase
+        .from('orders')
+        .update({
+          expected_delivery: editForm.end_date || null,
+          details: editForm.notes || null,
+          sector: editForm.sector || null,
+          quantity: editForm.quantity === '' ? null : Number(editForm.quantity),
+          total_amount: newTotal,
+          remaining_amount: newRemaining,
+        })
+        .eq('id', order.order_id)
+        .eq('tenant_id', order.tenant_id)
+      if (orderErr) throw orderErr
+
+      if (order.client_id) {
+        const { error: clientErr } = await supabase
+          .from('clients')
+          .update({
+            name: editForm.customer_name || null,
+            phone: editForm.phone || null,
+            address: editForm.address || null,
+            city: editForm.city || null,
+          })
+          .eq('id', order.client_id)
+          .eq('tenant_id', order.tenant_id)
+        if (clientErr) throw clientErr
+      }
+
+      const originalIds = items.map(it => it.id).filter(Boolean)
+      const currentIds = cleanItems.map(it => it.id).filter(Boolean)
+      const deletedIds = originalIds.filter(idVal => !currentIds.includes(idVal))
+
+      if (deletedIds.length > 0) {
+        const { error: delErr } = await supabase.from('order_items').delete().in('id', deletedIds as string[])
+        if (delErr) throw delErr
+      }
+
+      const toUpdate = cleanItems.filter(it => it.id)
+      for (const it of toUpdate) {
+        const { error: updErr } = await supabase
+          .from('order_items')
+          .update({
+            name: it.name,
+            size: it.size || null,
+            color: it.color || null,
+            quantity: Number(it.quantity) || 0,
+            unit_price: Number(it.unit_price) || 0,
+            total_price: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+          })
+          .eq('id', it.id as string)
+        if (updErr) throw updErr
+      }
+
+      const toInsert = cleanItems
+        .filter(it => !it.id)
+        .map(it => ({
+          order_id: order.order_id,
+          tenant_id: order.tenant_id,
+          name: it.name,
+          size: it.size || null,
+          color: it.color || null,
+          quantity: Number(it.quantity) || 0,
+          unit_price: Number(it.unit_price) || 0,
+          total_price: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+        }))
+      if (toInsert.length > 0) {
+        const { error: insErr } = await supabase.from('order_items').insert(toInsert)
+        if (insErr) throw insErr
+      }
+
+      await loadData()
+    } catch (err) {
+      console.error('خطأ في الحفظ:', err)
+      setSaveError(err instanceof Error ? err.message : 'فشل حفظ التعديلات')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#08090A] flex items-center justify-center">
@@ -302,127 +465,326 @@ export default function OrderDetailClient({ id }: { id: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#08090A] p-6 text-[#F0EDE8]" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
-      <div className="mb-8 flex items-center justify-between">
+    <div className="min-h-screen bg-[#08090A] p-4 text-[#F0EDE8]" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
+      <div className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-black text-white mb-2">طلب</h1>
+          <h1 className="text-2xl font-black text-white mb-1">طلب</h1>
           <p className="text-sm text-gray-400">
             {order.customer_name}
             {order.order_number && <span className="text-[#D4A843] font-mono mr-2">· {order.order_number}</span>}
           </p>
         </div>
-        <button
-          onClick={() => router.back()}
-          className="px-4 py-2 text-sm border border-white/10 rounded-lg text-gray-400 hover:text-[#D4A843] transition"
-        >
-          ← رجوع
-        </button>
+        <div className="flex items-center gap-2">
+          {editMode ? (
+            <>
+              <button
+                onClick={cancelEdit}
+                disabled={saving}
+                className="px-4 py-2 text-sm border border-white/10 rounded-lg text-gray-400 hover:text-white transition disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={saving}
+                className="px-4 py-2 text-sm bg-[#D4A843] text-[#08090A] rounded-lg font-bold hover:opacity-90 transition disabled:opacity-50"
+              >
+                {saving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={startEdit}
+                className="px-4 py-2 text-sm bg-[#D4A843] text-[#08090A] rounded-lg font-bold hover:opacity-90 transition"
+              >
+                ✎ تعديل
+              </button>
+              <button
+                onClick={() => router.back()}
+                className="px-4 py-2 text-sm border border-white/10 rounded-lg text-gray-400 hover:text-[#D4A843] transition"
+              >
+                ← رجوع
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {saveError && (
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
+          {saveError}
+        </div>
+      )}
 
       <OrderTabs
         tabs={{
           details: (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
-                  <p className="text-xs text-gray-500 mb-2">الإجمالي</p>
-                  <p className="text-2xl font-black text-[#D4A843]">{order.total_price?.toLocaleString()} ج.م</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-[#111318] border border-white/5 rounded-lg p-3 hover:border-white/10 transition">
+                  <p className="text-xs text-gray-500 mb-1">الإجمالي</p>
+                  <p className="text-xl font-black text-[#D4A843]">{order.total_price?.toLocaleString()} ج.م</p>
                 </div>
-                <div className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
-                  <p className="text-xs text-gray-500 mb-2">المدفوع</p>
-                  <p className="text-2xl font-black text-green-400">{order.paid?.toLocaleString()} ج.م</p>
+                <div className="bg-[#111318] border border-white/5 rounded-lg p-3 hover:border-white/10 transition">
+                  <p className="text-xs text-gray-500 mb-1">المدفوع</p>
+                  <p className="text-xl font-black text-green-400">{order.paid?.toLocaleString()} ج.م</p>
                 </div>
-                <div className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
-                  <p className="text-xs text-gray-500 mb-2">المتبقي</p>
-                  <p className="text-2xl font-black text-red-400">{order.remaining?.toLocaleString()} ج.م</p>
+                <div className="bg-[#111318] border border-white/5 rounded-lg p-3 hover:border-white/10 transition">
+                  <p className="text-xs text-gray-500 mb-1">المتبقي</p>
+                  <p className="text-xl font-black text-red-400">{order.remaining?.toLocaleString()} ج.م</p>
                 </div>
-                <div className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
-                  <p className="text-xs text-gray-500 mb-2">الحالة</p>
+                <div className="bg-[#111318] border border-white/5 rounded-lg p-3 hover:border-white/10 transition">
+                  <p className="text-xs text-gray-500 mb-1">الحالة</p>
                   <p className="text-sm font-bold text-[#D4A843]">{order.final_status}</p>
                 </div>
               </div>
 
-              <div className="bg-[#111318] border border-white/5 rounded-lg p-6 space-y-4">
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">العميل</p>
-                    <p className="text-white font-semibold">{order.customer_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">الهاتف</p>
-                    <p className="text-white font-semibold">{order.phone || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">العنوان</p>
-                    <p className="text-white font-semibold">
-                      {order.address || '—'}{order.city ? ` - ${order.city}` : ''}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">مندوب المبيعات</p>
-                    <p className="text-white font-semibold">{order.sales_rep}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">تاريخ الطلب</p>
-                    <p className="text-white font-semibold">{order.order_date?.split('T')[0] || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">التسليم المتوقع</p>
-                    <p className="text-white font-semibold">{order.end_date?.split('T')[0] || '—'}</p>
-                  </div>
-                  {order.sector && (
+              <div className="bg-[#111318] border border-white/5 rounded-lg p-4 space-y-3">
+                {editMode ? (
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">العميل</p>
+                      <input
+                        className={inputClass}
+                        value={editForm.customer_name}
+                        onChange={e => setEditForm(f => ({ ...f, customer_name: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">الهاتف</p>
+                      <input
+                        className={inputClass}
+                        value={editForm.phone}
+                        onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">العنوان</p>
+                      <input
+                        className={inputClass}
+                        value={editForm.address}
+                        onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">المدينة</p>
+                      <input
+                        className={inputClass}
+                        value={editForm.city}
+                        onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">التسليم المتوقع</p>
+                      <input
+                        type="date"
+                        className={inputClass}
+                        value={editForm.end_date}
+                        onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))}
+                      />
+                    </div>
                     <div>
                       <p className="text-xs text-gray-500 mb-1">القطاع</p>
-                      <p className="text-white font-semibold">{order.sector}</p>
+                      <input
+                        className={inputClass}
+                        value={editForm.sector}
+                        onChange={e => setEditForm(f => ({ ...f, sector: e.target.value }))}
+                      />
                     </div>
-                  )}
-                  {order.quantity !== undefined && order.quantity !== null && (
                     <div>
                       <p className="text-xs text-gray-500 mb-1">الكمية</p>
-                      <p className="text-white font-semibold">{order.quantity}</p>
+                      <input
+                        type="number"
+                        className={inputClass}
+                        value={editForm.quantity}
+                        onChange={e => setEditForm(f => ({ ...f, quantity: e.target.value }))}
+                      />
                     </div>
-                  )}
-                </div>
-                {order.notes && (
-                  <div className="pt-4 border-t border-white/5">
-                    <p className="text-xs text-gray-500 mb-2">الملاحظات</p>
-                    <p className="text-sm text-gray-300">{order.notes}</p>
+                    <div className="md:col-span-2">
+                      <p className="text-xs text-gray-500 mb-1">الملاحظات</p>
+                      <textarea
+                        className={inputClass}
+                        rows={2}
+                        value={editForm.notes}
+                        onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                      />
+                    </div>
                   </div>
+                ) : (
+                  <>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">العميل</p>
+                        <p className="text-white font-semibold">{order.customer_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">الهاتف</p>
+                        <p className="text-white font-semibold">{order.phone || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">العنوان</p>
+                        <p className="text-white font-semibold">
+                          {order.address || '—'}{order.city ? ` - ${order.city}` : ''}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">مندوب المبيعات</p>
+                        <p className="text-white font-semibold">{order.sales_rep}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">تاريخ الطلب</p>
+                        <p className="text-white font-semibold">{order.order_date?.split('T')[0] || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">التسليم المتوقع</p>
+                        <p className="text-white font-semibold">{order.end_date?.split('T')[0] || '—'}</p>
+                      </div>
+                      {order.sector && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">القطاع</p>
+                          <p className="text-white font-semibold">{order.sector}</p>
+                        </div>
+                      )}
+                      {order.quantity !== undefined && order.quantity !== null && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">الكمية</p>
+                          <p className="text-white font-semibold">{order.quantity}</p>
+                        </div>
+                      )}
+                    </div>
+                    {order.notes && (
+                      <div className="pt-3 border-t border-white/5">
+                        <p className="text-xs text-gray-500 mb-1">الملاحظات</p>
+                        <p className="text-sm text-gray-300">{order.notes}</p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
-              <div className="bg-[#111318] border border-white/5 rounded-lg p-6">
-                <p className="text-xs text-gray-500 mb-4">الأصناف المطلوبة {items.length > 0 && `(${items.length})`}</p>
-                {itemsLoading ? (
-                  <div className="text-center py-8 text-gray-600 text-sm">جاري التحميل...</div>
+              <div className="bg-[#111318] border border-white/5 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-gray-500">
+                    الأصناف المطلوبة {(editMode ? editItems : items).length > 0 && `(${(editMode ? editItems : items).length})`}
+                  </p>
+                  {editMode && (
+                    <button
+                      onClick={addEditItem}
+                      className="text-xs px-3 py-1.5 rounded-full bg-[#D4A843]/10 text-[#D4A843] border border-[#D4A843]/30 hover:bg-[#D4A843]/20 transition"
+                    >
+                      + إضافة صنف
+                    </button>
+                  )}
+                </div>
+
+                {editMode ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-right text-xs text-gray-500 border-b border-white/5">
+                          <th className="pb-2 font-normal">الصنف</th>
+                          <th className="pb-2 font-normal">المقاس</th>
+                          <th className="pb-2 font-normal">اللون</th>
+                          <th className="pb-2 font-normal">الكمية</th>
+                          <th className="pb-2 font-normal">سعر الوحدة</th>
+                          <th className="pb-2 font-normal">الإجمالي</th>
+                          <th className="pb-2 font-normal"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {editItems.map((it, index) => (
+                          <tr key={it.id ?? `new-${index}`} className="border-b border-white/5 last:border-0">
+                            <td className="py-2 pl-2">
+                              <input
+                                className={inputClass}
+                                value={it.name}
+                                onChange={e => updateEditItem(index, 'name', e.target.value)}
+                              />
+                            </td>
+                            <td className="py-2 pl-2">
+                              <input
+                                className={inputClass}
+                                value={it.size || ''}
+                                onChange={e => updateEditItem(index, 'size', e.target.value)}
+                              />
+                            </td>
+                            <td className="py-2 pl-2">
+                              <input
+                                className={inputClass}
+                                value={it.color || ''}
+                                onChange={e => updateEditItem(index, 'color', e.target.value)}
+                              />
+                            </td>
+                            <td className="py-2 pl-2 w-20">
+                              <input
+                                type="number"
+                                className={inputClass}
+                                value={it.quantity}
+                                onChange={e => updateEditItem(index, 'quantity', e.target.value)}
+                              />
+                            </td>
+                            <td className="py-2 pl-2 w-24">
+                              <input
+                                type="number"
+                                className={inputClass}
+                                value={it.unit_price}
+                                onChange={e => updateEditItem(index, 'unit_price', e.target.value)}
+                              />
+                            </td>
+                            <td className="py-2 text-[#D4A843] font-bold whitespace-nowrap">
+                              {((Number(it.quantity) || 0) * (Number(it.unit_price) || 0)).toLocaleString()} ج.م
+                            </td>
+                            <td className="py-2">
+                              <button
+                                onClick={() => removeEditItem(index)}
+                                className="text-xs text-red-400 hover:text-red-300 px-2"
+                              >
+                                حذف
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {editItems.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="text-center py-6 text-gray-600 text-sm">
+                              لا توجد أصناف — اضغط "إضافة صنف"
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : itemsLoading ? (
+                  <div className="text-center py-6 text-gray-600 text-sm">جاري التحميل...</div>
                 ) : items.length === 0 ? (
-                  <div className="text-center py-8 text-gray-600 text-sm">لا توجد أصناف مسجلة لهذا الطلب</div>
+                  <div className="text-center py-6 text-gray-600 text-sm">لا توجد أصناف مسجلة لهذا الطلب</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-right text-xs text-gray-500 border-b border-white/5">
-                          <th className="pb-3 font-normal">الصنف</th>
-                          <th className="pb-3 font-normal">المقاس</th>
-                          <th className="pb-3 font-normal">اللون</th>
-                          <th className="pb-3 font-normal">الكمية</th>
-                          <th className="pb-3 font-normal">سعر الوحدة</th>
-                          <th className="pb-3 font-normal">الإجمالي</th>
-                          <th className="pb-3 font-normal">المصدر</th>
+                          <th className="pb-2 font-normal">الصنف</th>
+                          <th className="pb-2 font-normal">المقاس</th>
+                          <th className="pb-2 font-normal">اللون</th>
+                          <th className="pb-2 font-normal">الكمية</th>
+                          <th className="pb-2 font-normal">سعر الوحدة</th>
+                          <th className="pb-2 font-normal">الإجمالي</th>
+                          <th className="pb-2 font-normal">المصدر</th>
                         </tr>
                       </thead>
                       <tbody>
                         {items.map(it => (
                           <tr key={it.id} className="border-b border-white/5 last:border-0">
-                            <td className="py-3 text-white font-semibold">{it.name}</td>
-                            <td className="py-3 text-gray-300">{it.size || '—'}</td>
-                            <td className="py-3 text-gray-300">{it.color || '—'}</td>
-                            <td className="py-3 text-gray-300">{it.quantity}</td>
-                            <td className="py-3 text-gray-300">{Number(it.unit_price)?.toLocaleString()} ج.م</td>
-                            <td className="py-3 text-[#D4A843] font-bold">
-                              {Number(it.total_price ?? it.unit_price * it.quantity)?.toLocaleString()} ج.م
+                            <td className="py-2 text-white font-semibold">{it.name}</td>
+                            <td className="py-2 text-gray-300">{it.size || '—'}</td>
+                            <td className="py-2 text-gray-300">{it.color || '—'}</td>
+                            <td className="py-2 text-gray-300">{it.quantity}</td>
+                            <td className="py-2 text-gray-300">{Number(it.unit_price)?.toLocaleString()} ج.م</td>
+                            <td className="py-2 text-[#D4A843] font-bold">
+                              {Number(it.total_price ?? Number(it.unit_price) * Number(it.quantity))?.toLocaleString()} ج.م
                             </td>
-                            <td className="py-3">
+                            <td className="py-2">
                               {it.source ? (
                                 <span className={`text-[10px] px-2 py-1 rounded-full border ${sourceColor[it.source] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
                                   {sourceLabel[it.source] || it.source}
@@ -440,7 +802,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
           ),
 
           production: (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {stageError && (
                 <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
                   {stageError}
@@ -453,7 +815,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
                 const isUpdating = updatingStage === stage
 
                 return (
-                  <div key={stage} className="bg-[#111318] border border-white/5 rounded-lg p-4 hover:border-white/10 transition">
+                  <div key={stage} className="bg-[#111318] border border-white/5 rounded-lg p-3 hover:border-white/10 transition">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span>{icon}</span>
@@ -484,14 +846,14 @@ export default function OrderDetailClient({ id }: { id: string }) {
           images: <OrderImageGallery orderId={id} tenantId={order.tenant_id} canEdit={true} legacyAttachments={order.attachments || []} />,
 
           complaints: (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {complaintsLoading ? (
-                <div className="text-center py-12 text-gray-600 text-sm">جاري التحميل...</div>
+                <div className="text-center py-10 text-gray-600 text-sm">جاري التحميل...</div>
               ) : complaints.length === 0 ? (
-                <div className="text-center py-12 text-gray-600 text-sm">لا توجد شكاوى مرتبطة بهذا الطلب</div>
+                <div className="text-center py-10 text-gray-600 text-sm">لا توجد شكاوى مرتبطة بهذا الطلب</div>
               ) : (
                 complaints.map(c => (
-                  <div key={c.id} className="bg-[#111318] border border-white/5 rounded-lg p-5">
+                  <div key={c.id} className="bg-[#111318] border border-white/5 rounded-lg p-4">
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
