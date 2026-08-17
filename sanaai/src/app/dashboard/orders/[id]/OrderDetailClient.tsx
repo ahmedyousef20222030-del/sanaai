@@ -436,9 +436,10 @@ export default function OrderDetailClient({ id }: { id: string }) {
       }
 
       await loadData()
-    } catch (err) {
+    } catch (err: any) {
       console.error('خطأ في الحفظ:', err)
-      setSaveError(err instanceof Error ? err.message : 'فشل حفظ التعديلات')
+      const message = err?.message || err?.error_description || err?.details || 'فشل حفظ التعديلات'
+      setSaveError(message)
     } finally {
       setSaving(false)
     }
@@ -480,9 +481,10 @@ export default function OrderDetailClient({ id }: { id: string }) {
       if (orderErr) throw orderErr
 
       router.push('/orders')
-    } catch (err) {
+    } catch (err: any) {
       console.error('خطأ في حذف الطلب:', err)
-      setDeleteError(err instanceof Error ? err.message : 'فشل حذف الطلب')
+      const message = err?.message || err?.error_description || err?.details || 'فشل حذف الطلب'
+      setDeleteError(message)
       setDeleting(false)
       setShowDeleteConfirm(false)
     }
