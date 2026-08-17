@@ -21,6 +21,9 @@ type InventoryItem = {
   name: string
   current_stock: number
   unit: string
+  color: string | null
+  color_hex: string | null
+  selling_price: number
 }
 
 type User = {
@@ -36,6 +39,9 @@ const EXECUTION_TYPES = ['طباعة', 'تطريز', 'بدون'] as const
 type OrderItem = {
   inventory_id: string
   product_name: string
+  color: string
+  color_hex: string | null
+  custom_detail: string
   size: string
   qty: number
   unit_price: number
@@ -78,6 +84,28 @@ const EXECUTION_COLORS: Record<string, string> = {
   'طباعة': 'bg-sky-500/20 text-sky-400 border-sky-500/30',
   'تطريز': 'bg-purple-500/20 text-purple-400 border-purple-500/30',
   'بدون': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+}
+
+// نفس قايمة الألوان المستخدمة في شاشة المخزون، عشان الدوائر اللونية تتطابق
+const COLOR_PRESETS: { name: string; hex: string }[] = [
+  { name: 'أسود', hex: '#1a1a1a' }, { name: 'أبيض', hex: '#eeeeee' },
+  { name: 'أحمر', hex: '#c62828' }, { name: 'أزرق', hex: '#1565c0' },
+  { name: 'أصفر', hex: '#f5c400' }, { name: 'بيج', hex: '#e3d2b3' },
+  { name: 'رمادي', hex: '#5b5b5b' }, { name: 'أخضر', hex: '#2e7d32' },
+  { name: 'كحلي', hex: '#0d1b3e' }, { name: 'بني', hex: '#6d4c31' },
+  { name: 'فوشيا', hex: '#e4007c' }, { name: 'وردي', hex: '#f48fb1' },
+  { name: 'بنفسجي', hex: '#6a1b9a' }, { name: 'موف', hex: '#b39ddb' },
+  { name: 'برتقالي', hex: '#fb8c00' }, { name: 'فضي', hex: '#c0c0c0' },
+  { name: 'ذهبي', hex: '#d4af37' }, { name: 'تركواز', hex: '#26c6da' },
+  { name: 'فيروزي', hex: '#40e0d0' }, { name: 'عنابي', hex: '#7b1f1f' },
+  { name: 'خمري', hex: '#800020' }, { name: 'زيتي', hex: '#808000' },
+  { name: 'سماوي', hex: '#87ceeb' }, { name: 'كريمي', hex: '#fff3d6' },
+  { name: 'نحاسي', hex: '#b87333' }, { name: 'بترولي', hex: '#0f4c5c' },
+]
+
+function colorHex(name: string | null, customHex?: string | null) {
+  if (customHex) return customHex
+  return COLOR_PRESETS.find(c => c.name === name)?.hex || '#888888'
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -137,6 +165,7 @@ export default function NewOrderPage() {
 
   // Items Management
   const [items, setItems] = useState<OrderItem[]>([])
+  const [customDetailOpen, setCustomDetailOpen] = useState<Set<number>>(new Set())
 
   // Files Management
   const [files, setFiles] = useState<File[]>([])
@@ -186,7 +215,7 @@ export default function NewOrderPage() {
       // Fetch Inventory
       const { data: inventoryData, error: inventoryError } = await supabase
         .from('inventory')
-        .select('id, name, current_stock, unit')
+        .select('id, name, current_stock, unit, color, color_hex, selling_price')
         .eq('tenant_id', userData.tenant_id)
 
       if (inventoryError) throw inventoryError
@@ -220,6 +249,9 @@ export default function NewOrderPage() {
     setItems(prev => [...prev, {
       inventory_id: '',
       product_name: '',
+      color: '',
+      color_hex: null,
+      custom_detail: '',
       size: 'M',
       qty: 1,
       unit_price: 0,
@@ -231,6 +263,15 @@ export default function NewOrderPage() {
 
   function removeItem(index: number) {
     setItems(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function toggleCustomDetail(index: number) {
+    setCustomDetailOpen(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
   }
 
   function calculateStatus(stock: number, qty: number): OrderItem['status'] {
@@ -245,13 +286,13 @@ export default function NewOrderPage() {
 
       const updated = { ...item, [key]: value }
 
-      if (key === 'inventory_id') {
-        const product = inventory.find(p => p.id === value)
-        if (product) {
-          updated.product_name = product.name
-          updated.stock_qty = product.current_stock || 0
-          updated.status = calculateStatus(product.current_stock, updated.qty)
-        }
+      // اختيار اسم منتج جديد يصفّر اللون المختار قبل كده، عشان السيلز
+      // يختار من ألوان المنتج الجديد مش المنتج القديم
+      if (key === 'product_name') {
+        updated.inventory_id = ''
+        updated.color = ''
+        updated.color_hex = null
+        updated.stock_qty = 0
       }
 
       if (key === 'qty') {
@@ -262,6 +303,22 @@ export default function NewOrderPage() {
       }
 
       return updated
+    }))
+  }
+
+  // اختيار لون معيّن (صف مخزون بعينه) بعد ما السيلز يكون اختار اسم المنتج
+  function selectVariant(index: number, product: InventoryItem) {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== index) return item
+      return {
+        ...item,
+        inventory_id: product.id,
+        color: product.color || '',
+        color_hex: product.color_hex,
+        stock_qty: product.current_stock || 0,
+        unit_price: product.selling_price || item.unit_price,
+        status: calculateStatus(product.current_stock, item.qty),
+      }
     }))
   }
 
@@ -315,6 +372,7 @@ export default function NewOrderPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   const effectiveSector = form.sector === 'أخرى' ? customSector : form.sector
+  const productNames = Array.from(new Set(inventory.map(p => p.name))).sort((a, b) => a.localeCompare(b, 'ar'))
   const itemsTotal = items.reduce((sum, item) => sum + (item.qty * item.unit_price), 0)
   const manualTotal = (Number(form.quantity) * Number(form.unit_price)) || 0
   const total = items.length > 0 ? itemsTotal : manualTotal
@@ -369,6 +427,11 @@ export default function NewOrderPage() {
     }
     if (items.length === 0 && (!form.quantity || !form.unit_price)) {
       alert('يرجى إضافة أصناف أو كمية وسعر')
+      return
+    }
+    const missingColor = items.find(x => x.product_name && !x.inventory_id)
+    if (missingColor) {
+      alert(`يرجى اختيار لون لصنف "${missingColor.product_name}"`)
       return
     }
     if (!form.expected_delivery) {
@@ -464,6 +527,8 @@ export default function NewOrderPage() {
           tenant_id: user.tenant_id,
           inventory_id: item.inventory_id || null,
           name: item.product_name,
+          color: item.color || null,
+          custom_detail: item.custom_detail || null,
           size: item.size,
           quantity: item.qty,
           unit_price: item.unit_price,
@@ -555,7 +620,8 @@ export default function NewOrderPage() {
 
       const tableBody = items.length > 0
         ? items.map(item => [
-            item.product_name || '—',
+            [item.product_name, item.color].filter(Boolean).join(' - ') || '—',
+            item.custom_detail || '—',
             item.size,
             item.execution_type,
             item.qty.toString(),
@@ -565,6 +631,7 @@ export default function NewOrderPage() {
         : [[
             form.notes || 'طلب إنتاج',
             '—',
+            '—',
             form.execution_type,
             form.quantity,
             `${form.unit_price} ج.م`,
@@ -573,7 +640,7 @@ export default function NewOrderPage() {
 
       autoTable(doc, {
         startY: 80,
-        head: [['الصنف', 'المقاس', 'التنفيذ', 'الكمية', 'سعر الوحدة', 'الإجمالي']],
+        head: [['الصنف', 'تفصيل خاص', 'المقاس', 'التنفيذ', 'الكمية', 'سعر الوحدة', 'الإجمالي']],
         body: tableBody,
         styles: { halign: 'center', fontSize: 10, font: 'helvetica' },
         headStyles: { fillColor: [13, 27, 42], textColor: [200, 150, 62] },
@@ -808,22 +875,56 @@ export default function NewOrderPage() {
                   </div>
                 )}
 
-                {items.map((item, i) => (
+                {items.map((item, i) => {
+                  const variants = item.product_name ? inventory.filter(p => p.name === item.product_name) : []
+                  const isCustomDetailOpen = customDetailOpen.has(i) || !!item.custom_detail
+                  return (
                   <div key={i} className="bg-[#0D1B2A] rounded-xl border border-white/5 p-4">
                     <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 items-end">
                       <div className="sm:col-span-2">
                         <label className="block text-xs text-gray-600 mb-1">الصنف</label>
                         <select
-                          value={item.inventory_id}
-                          onChange={e => updateItem(i, 'inventory_id', e.target.value)}
+                          value={item.product_name}
+                          onChange={e => updateItem(i, 'product_name', e.target.value)}
                           className="w-full bg-[#111927] border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-amber-500/50"
                         >
                           <option value="">اختر صنف من المخزن</option>
-                          {inventory.map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.current_stock} {p.unit})</option>
+                          {productNames.map(name => (
+                            <option key={name} value={name}>{name}</option>
                           ))}
                         </select>
                       </div>
+
+                      {item.product_name && (
+                        <div className="col-span-2 sm:col-span-4">
+                          <label className="block text-xs text-gray-600 mb-1">اللون</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {variants.length === 0 ? (
+                              <span className="text-[11px] text-gray-600">مفيش ألوان متسجلة للمنتج ده</span>
+                            ) : variants.map(p => {
+                              const outOfStock = p.current_stock <= 0
+                              const selected = item.inventory_id === p.id
+                              return (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => selectVariant(i, p)}
+                                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] transition
+                                    ${selected ? 'border-amber-500 bg-amber-500/10 text-amber-400' : 'border-white/10 text-gray-300 hover:border-white/30'}`}
+                                >
+                                  <span
+                                    className="w-3 h-3 rounded-full border border-white/20 shrink-0"
+                                    style={{ background: colorHex(p.color, p.color_hex) }}
+                                  />
+                                  {p.color || 'بدون لون'}
+                                  {outOfStock && <span className="text-amber-500">(المخزون 0)</span>}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       <div>
                         <label className="block text-xs text-gray-600 mb-1">المقاس</label>
                         <select
@@ -869,6 +970,29 @@ export default function NewOrderPage() {
                         />
                       </div>
                     </div>
+
+                    <div className="mt-3">
+                      {!isCustomDetailOpen ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleCustomDetail(i)}
+                          className="text-[11px] text-amber-400/80 border border-amber-500/20 rounded-lg px-2.5 py-1 hover:bg-amber-500/10 transition"
+                        >
+                          + تفصيل خاص (لون كم / لياقة / أسورة مختلف)
+                        </button>
+                      ) : (
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">تفصيل خاص</label>
+                          <input
+                            placeholder="مثال: كم أحمر × لياقة سوداء"
+                            value={item.custom_detail}
+                            onChange={e => updateItem(i, 'custom_detail', e.target.value)}
+                            className="w-full bg-[#111927] border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-amber-500/50"
+                          />
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
                       <div className="flex items-center gap-3 flex-wrap">
                         {item.inventory_id && (
@@ -891,7 +1015,7 @@ export default function NewOrderPage() {
                       </button>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             ) : (
               <div className="text-center py-6 border-2 border-dashed border-white/5 rounded-xl">
