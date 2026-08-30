@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 const navItems = [
   { label: 'نظرة عامة', icon: '📊', path: '/platform' },
   { label: 'الشركات',    icon: '🏢', path: '/platform/tenants' },
+  { label: 'استيراد طلبات', icon: '📥', path: '/platform/orders-import' },
 ]
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {

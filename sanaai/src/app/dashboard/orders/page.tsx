@@ -13,6 +13,8 @@ type Order = {
   attachments: string[] | null // ✅ مرفقات الطلب (أول صورة تُستخدم كلوجو العميل)
   expected_delivery: string
   created_at: string
+  needs_completion: boolean // ✅ طلب مستورد بالجملة لسه محتاج لوجو/تفاصيل
+  assigned_user_id: string
   clients: { name: string; phone: string }
 }
 
@@ -31,24 +33,68 @@ const deliveryColor: Record<string, string> = {
   'مبكر': 'text-blue-400',
 }
 
+const FILTERS = ['الكل', 'تحتاج استكمال', 'جديد', 'تحت الإنتاج', 'فحص الجودة', 'جاهز للشحن', 'تم التسليم', 'مغلق']
+
 export default function OrdersPage() {
   const router = useRouter()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('الكل')
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
 
   useEffect(() => { fetchOrders() }, [])
 
   async function fetchOrders() {
     setLoading(true)
-    const { data, error } = await supabase.from('orders').select('*, clients(name, phone)').order('created_at', { ascending: false })
+
+    // لازم نعرف مين المستخدم الحالي ودوره الأول، عشان نقرر هيشوف كل الطلبات
+    // ولا طلباته بس (لو سيلز)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setOrders([])
+      setLoading(false)
+      return
+    }
+
+    const { data: me, error: meError } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (meError || !me) {
+      console.error('تعذر تحديد دور المستخدم:', meError?.message)
+      setOrders([])
+      setLoading(false)
+      return
+    }
+
+    setCurrentUserRole(me.role)
+
+    // 🔒 كل سيلز يشوف طلباته المسندة له بس. أي دور تاني (owner/admin/production/...)
+    // يشوف كل طلبات الشركة زي ما هو معمول أصلاً.
+    let query = supabase
+      .from('orders')
+      .select('*, clients(name, phone)')
+      .order('created_at', { ascending: false })
+
+    if (me.role === 'sales') {
+      query = query.eq('assigned_user_id', user.id)
+    }
+
+    const { data, error } = await query
     if (!error) setOrders(data || [])
     setLoading(false)
   }
 
   const filtered = orders.filter(o => {
-    const matchStatus = filter === 'الكل' || o.status === filter
+    const matchStatus =
+      filter === 'الكل'
+        ? true
+        : filter === 'تحتاج استكمال'
+        ? o.needs_completion === true
+        : o.status === filter
     const matchSearch = !search || o.order_number?.toLowerCase().includes(search.toLowerCase()) || o.clients?.name?.toLowerCase().includes(search.toLowerCase())
     return matchStatus && matchSearch
   })
@@ -59,7 +105,9 @@ export default function OrdersPage() {
         <div className="flex items-center gap-4">
           <div>
             <h1 className="text-2xl font-black text-white">📦 إدارة الطلبات</h1>
-            <p className="text-sm text-gray-500 mt-1">{orders.length} طلب في النظام</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {orders.length} طلب {currentUserRole === 'sales' ? 'مسندة لك' : 'في النظام'}
+            </p>
           </div>
           <div className="mr-6 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
             <span className="text-[10px] text-gray-500 block">إجمالي القيمة</span>
@@ -77,8 +125,22 @@ export default function OrdersPage() {
           <input type="text" placeholder="بحث باسم العميل أو رقم الطلب..." value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-[#111927] border border-white/10 rounded-xl px-11 py-2.5 text-sm text-white focus:border-amber-500/50 outline-none transition" />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
-          {['الكل', 'جديد', 'تحت الإنتاج', 'فحص الجودة', 'جاهز للشحن', 'تم التسليم', 'مغلق'].map(s => (
-            <button key={s} onClick={() => setFilter(s)} className={`px-4 py-2 rounded-lg text-xs font-medium transition border ${filter === s ? 'bg-amber-500 text-black border-amber-500' : 'text-gray-500 border-white/10 bg-white/5'}`}>{s}</button>
+          {FILTERS.map(s => (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={`px-4 py-2 rounded-lg text-xs font-medium transition border whitespace-nowrap ${
+                filter === s
+                  ? s === 'تحتاج استكمال'
+                    ? 'bg-red-500 text-white border-red-500'
+                    : 'bg-amber-500 text-black border-amber-500'
+                  : s === 'تحتاج استكمال'
+                  ? 'text-red-400 border-red-500/30 bg-red-500/5'
+                  : 'text-gray-500 border-white/10 bg-white/5'
+              }`}
+            >
+              {s === 'تحتاج استكمال' ? '🟡 تحتاج استكمال' : s}
+            </button>
           ))}
         </div>
       </div>
@@ -136,6 +198,14 @@ export default function OrdersPage() {
                             ⚠ متبقي تحصيل
                           </span>
                         )}
+                        {o.needs_completion && (
+                          <span
+                            className="text-[10px] px-2 py-0.5 rounded-full border bg-red-500/20 text-red-400 border-red-500/30 font-bold animate-pulse"
+                            title="طلب مستورد بالجملة، لسه محتاج لوجو أو تفاصيل ناقصة"
+                          >
+                            🟡 تحتاج استكمال
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className={`px-5 py-4 text-xs font-medium ${deliveryColor[o.delivery_status] || 'text-gray-400'}`}>{o.delivery_status || 'في الموعد'}</td>
@@ -145,6 +215,13 @@ export default function OrdersPage() {
                   </tr>
                   )
                 })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="text-center py-16 text-gray-600 text-sm">
+                      لا توجد طلبات مطابقة
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
