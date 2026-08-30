@@ -20,11 +20,12 @@ const COLUMN_MAP: Record<string, string> = {
   'تاريخ الطلب': 'order_date',
   'تاريخ التسليم المتوقع': 'expected_delivery',
   'ملخص الأصناف': 'items_summary',
+  'الكمية': 'quantity',
   'الإجمالي (ج.م)': 'total_amount',
   'المدفوع مقدماً (ج.م)': 'deposit_paid',
   'ملاحظات': 'notes',
 }
-const NUMERIC_FIELDS = ['total_amount', 'deposit_paid']
+const NUMERIC_FIELDS = ['total_amount', 'deposit_paid', 'quantity']
 
 type Tenant = { id: string; name: string }
 type SalesRep = { id: string; full_name: string | null; email: string | null }
@@ -93,7 +94,7 @@ export default function PlatformOrdersImportPage() {
     }
 
     const foundColumns = Object.keys(rows[0])
-    const requiredColumns = ['رقم الطلب', 'اسم العميل', 'الإجمالي (ج.م)']
+    const requiredColumns = ['رقم الطلب', 'اسم العميل', 'الكمية', 'الإجمالي (ج.م)']
     const missing = requiredColumns.filter(c => !foundColumns.includes(c))
     if (missing.length > 0) {
       setParseErrors(missing.map(c => `العمود المطلوب "${c}" غير موجود في الشيت`))
@@ -120,6 +121,10 @@ export default function PlatformOrdersImportPage() {
       })
       if (mapped.total_amount == null || Number.isNaN(mapped.total_amount)) {
         errors.push(`صف ${sourceRow}: "الإجمالي (ج.م)" غير رقمية أو فارغة - تم تجاهله`)
+        return
+      }
+      if (mapped.quantity == null || Number.isNaN(mapped.quantity) || mapped.quantity <= 0) {
+        errors.push(`صف ${sourceRow}: "الكمية" غير رقمية أو فارغة أو صفر - تم تجاهله`)
         return
       }
 
