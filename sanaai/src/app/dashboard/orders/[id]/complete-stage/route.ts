@@ -118,9 +118,12 @@ export async function POST(
       .eq('production_id', productionId)
 
     // Filter definitions by print_or_embroidery
+    // ملحوظة: conditional_on_choice مخزّن بالعربي ('طباعة' / 'تطريز') حسب CHECK constraint
+    // الجدول، بينما production.print_or_embroidery مخزّن بالإنجليزي ('printing' / 'embroidery')
+    const choiceMap: Record<string, string> = { printing: 'طباعة', embroidery: 'تطريز' }
     const filteredDefs = (allDefinitions || []).filter(def => {
       if (!def.conditional_on_choice) return true
-      return def.conditional_on_choice === productionData?.print_or_embroidery
+      return def.conditional_on_choice === choiceMap[productionData?.print_or_embroidery || '']
     })
 
     const completedCount = filteredDefs.filter(def =>

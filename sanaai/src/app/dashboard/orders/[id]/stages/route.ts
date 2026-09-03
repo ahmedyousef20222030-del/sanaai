@@ -56,11 +56,14 @@ export async function GET(
     if (compError) throw compError
 
     // Filter definitions based on print_or_embroidery choice
+    // ملحوظة: production_stage_definitions.conditional_on_choice بيتخزن دايمًا بالعربي
+    // ('طباعة' / 'تطريز') حسب الـ CHECK constraint على الجدول، بينما production.print_or_embroidery
+    // مخزّن بالإنجليزي ('printing' / 'embroidery') — فلازم نترجم القيمة وقت المقارنة.
     const filteredDefs = definitions.filter(def => {
       if (!def.conditional_on_choice) return true // Always show unconditional
-      if (prod.print_or_embroidery === 'printing' && def.conditional_on_choice === 'printing')
+      if (prod.print_or_embroidery === 'printing' && def.conditional_on_choice === 'طباعة')
         return true
-      if (prod.print_or_embroidery === 'embroidery' && def.conditional_on_choice === 'embroidery')
+      if (prod.print_or_embroidery === 'embroidery' && def.conditional_on_choice === 'تطريز')
         return true
       return false
     })
