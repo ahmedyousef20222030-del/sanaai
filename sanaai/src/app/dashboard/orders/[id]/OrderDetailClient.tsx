@@ -363,7 +363,6 @@ export default function OrderDetailClient({ id }: { id: string }) {
         (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
         0
       )
-      const newRemaining = newTotal - (order.paid || 0)
 
       const { error: orderErr } = await supabase
         .from('orders')
@@ -373,7 +372,8 @@ export default function OrderDetailClient({ id }: { id: string }) {
           sector: editForm.sector || null,
           quantity: editForm.quantity === '' ? null : Number(editForm.quantity),
           total_amount: newTotal,
-          remaining_amount: newRemaining,
+          // remaining_amount: عمود GENERATED محسوب تلقائيًا في قاعدة البيانات (total_amount - deposit_paid)
+          // مينفعش نبعته في الـ update
         })
         .eq('id', order.order_id)
         .eq('tenant_id', order.tenant_id)

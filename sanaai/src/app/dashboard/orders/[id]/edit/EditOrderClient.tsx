@@ -351,7 +351,6 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
       }
 
       const newQuantity = items.length > 0 ? items.reduce((s, x) => s + x.qty, 0) : Number(form.quantity)
-      const newRemaining = total - (Number(form.deposit_amount) || 0)
 
       // 2) تحديث صف الطلب نفسه
       const { error: orderError } = await supabase
@@ -361,7 +360,8 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
           sector: effectiveSector,
           expected_delivery: form.expected_delivery,
           deposit_paid: Number(form.deposit_amount) || 0,
-          remaining_amount: newRemaining,
+          // remaining_amount: عمود GENERATED محسوب تلقائيًا في قاعدة البيانات (total_amount - deposit_paid)
+          // مينفعش نبعته في الـ update، وإلا Postgres يرمي: "column can only be updated to DEFAULT"
           details: form.notes,
           quantity: newQuantity,
           total_amount: total,
