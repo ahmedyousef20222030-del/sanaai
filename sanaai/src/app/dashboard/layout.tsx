@@ -10,11 +10,12 @@ import {
   EXTRA_NAV_LINKS,
   canAccessPageKey,
   matchPageKeyForPath,
+  PagePermissions,
 } from '@/lib/pages'
 
 type MyAccess = {
   role: string
-  allowed_pages: string[] | null
+  page_permissions: PagePermissions | null
 }
 
 type NavLink = { label: string; icon: string; path: string }
@@ -40,7 +41,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
       const { data, error } = await supabase
         .from('users')
-        .select('role, allowed_pages')
+        .select('role, page_permissions')
         .eq('id', user.id)
         .single()
       if (error) throw error
@@ -62,7 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (me) {
     const grouped: Record<string, NavLink[]> = {}
     for (const page of PAGE_LIST) {
-      if (!canAccessPageKey(page.key, isOwner, me.allowed_pages)) continue
+      if (!canAccessPageKey(page.key, isOwner, me.page_permissions)) continue
       grouped[page.section] = grouped[page.section] || []
       grouped[page.section].push({ label: page.label, icon: page.icon, path: page.key })
       for (const extra of EXTRA_NAV_LINKS) {
@@ -89,7 +90,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     const pageKey = matchPageKeyForPath(pathname)
     if (!pageKey) return true // مسار مش مسجل في النظام أصلاً (صفحة عامة غير محمية)
-    return canAccessPageKey(pageKey, isOwner, me.allowed_pages)
+    return canAccessPageKey(pageKey, isOwner, me.page_permissions)
   }
 
   const routeAllowed = !loadingMe && isCurrentRouteAllowed()

@@ -48,7 +48,7 @@ export async function getCurrentUser(): Promise<AuthUser> {
   const { data: row, error: rowError } = await supabaseAdmin
     .from('users')
     .select(
-      'id, tenant_id, role, is_active, can_edit_production, can_edit_orders, can_manage_sales, can_manage_users, can_view_clients',
+      'id, tenant_id, role, is_active, job_title, page_permissions',
     )
     .eq('id', authUser.id)
     .single<DbUserRow>()

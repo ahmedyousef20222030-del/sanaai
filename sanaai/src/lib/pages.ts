@@ -48,7 +48,7 @@ export const PAGE_LIST: PageDef[] = [
   { key: '/dashboard/changelog',   label: 'سجل التغييرات',    icon: '📋', section: 'الإدارة' },
 ]
 
-// صفحات خاصة خارج نظام allowed_pages
+// صفحات خاصة خارج نظام page_permissions
 export const HOME_PATH = '/dashboard'               // ظاهرة للكل دايمًا، مش قابلة للسحب
 export const SETTINGS_PATH = '/dashboard/settings'  // للـ owner فقط دايمًا، مش قابلة للمنح لغيره
 
@@ -59,14 +59,49 @@ export const EXTRA_NAV_LINKS: { after: PageKey; label: string; icon: string; pat
   { after: '/dashboard/production', label: 'تجميع الطباعة', icon: '🖨️', path: '/dashboard/production/printing' },
 ]
 
-// هل المستخدم يقدر يشوف الصفحة دي؟
+// ═══════════════════════════════════════════════════════════════
+// مستويات الصلاحية لكل صفحة على حدة (بدل صلاحية "عرض" بوليانية واحدة).
+// غياب الصفحة من الخريطة = ممنوع الدخول لها أصلاً.
+//   view        → 👁️ قراءة فقط (يشوف الصفحة، مفيش أفعال تعديل/حذف)
+//   edit        → ✏️ يقدر يضيف/يعدّل جوه الصفحة
+//   edit_delete → 🗑️ يقدر يضيف/يعدّل/يحذف جوه الصفحة
+// ═══════════════════════════════════════════════════════════════
+export type PermissionLevel = 'view' | 'edit' | 'edit_delete'
+
+export type PagePermissions = Partial<Record<PageKey, PermissionLevel>>
+
+export const PERMISSION_LEVEL_ORDER: PermissionLevel[] = ['view', 'edit', 'edit_delete']
+
+export const PERMISSION_LEVEL_LABELS: Record<PermissionLevel, string> = {
+  view: '👁️ قراءة فقط',
+  edit: '✏️ تعديل',
+  edit_delete: '🗑️ تعديل وحذف',
+}
+
+// هل المستوى الممنوح يغطي على الأقل الحد الأدنى المطلوب؟
+export function levelAtLeast(level: PermissionLevel | null | undefined, min: PermissionLevel): boolean {
+  if (!level) return false
+  return PERMISSION_LEVEL_ORDER.indexOf(level) >= PERMISSION_LEVEL_ORDER.indexOf(min)
+}
+
+// هل المستخدم يقدر يشوف الصفحة دي؟ (owner يشوف كل حاجة دايمًا بأعلى صلاحية)
 export function canAccessPageKey(
   pageKey: PageKey,
   isOwner: boolean,
-  allowedPages: string[] | null | undefined
+  pagePermissions: PagePermissions | null | undefined
 ): boolean {
   if (isOwner) return true
-  return !!allowedPages?.includes(pageKey)
+  return !!pagePermissions?.[pageKey]
+}
+
+// إرجاع مستوى صلاحية المستخدم الفعلي على صفحة معيّنة (owner = أعلى صلاحية دايمًا)
+export function getPageLevel(
+  pageKey: PageKey,
+  isOwner: boolean,
+  pagePermissions: PagePermissions | null | undefined
+): PermissionLevel | null {
+  if (isOwner) return 'edit_delete'
+  return pagePermissions?.[pageKey] ?? null
 }
 
 // تحديد أنهي PageKey مسؤول عن مسار معيّن (بيغطي الصفحات الفرعية زي orders/[id])
