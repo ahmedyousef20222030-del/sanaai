@@ -412,7 +412,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
             color: it.color || null,
             quantity: Number(it.quantity) || 0,
             unit_price: Number(it.unit_price) || 0,
-            total_price: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+            // total_price: عمود GENERATED محسوب تلقائيًا (quantity × unit_price)، مينفعش يتبعت يدوي
           })
           .eq('id', it.id as string)
         if (updErr) throw updErr
@@ -428,7 +428,7 @@ export default function OrderDetailClient({ id }: { id: string }) {
           color: it.color || null,
           quantity: Number(it.quantity) || 0,
           unit_price: Number(it.unit_price) || 0,
-          total_price: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+          // total_price: عمود GENERATED محسوب تلقائيًا (quantity × unit_price)، مينفعش يتبعت يدوي
         }))
       if (toInsert.length > 0) {
         const { error: insErr } = await supabase.from('order_items').insert(toInsert)

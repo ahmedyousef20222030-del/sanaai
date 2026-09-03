@@ -414,7 +414,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
             size: it.size,
             quantity: it.qty,
             unit_price: it.unit_price,
-            total_price: it.qty * it.unit_price,
+            // total_price: عمود GENERATED محسوب تلقائيًا (quantity × unit_price)، مينفعش يتبعت يدوي
             fulfillment_type: it.status,
             execution_type: it.execution_type,
             source: it.inventory_id ? 'مخزون' : 'خارجي',
@@ -436,7 +436,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
           size: it.size,
           quantity: it.qty,
           unit_price: it.unit_price,
-          total_price: it.qty * it.unit_price,
+          // total_price: عمود GENERATED محسوب تلقائيًا (quantity × unit_price)، مينفعش يتبعت يدوي
           fulfillment_type: it.status,
           execution_type: it.execution_type,
           source: it.inventory_id ? 'مخزون' : 'خارجي',
