@@ -10,6 +10,7 @@ export type PageKey =
   | '/dashboard/suppliers'
   | '/dashboard/procurement'
   | '/dashboard/inventory'
+  | '/dashboard/restock-decisions'
   | '/dashboard/production'
   | '/dashboard/quality'
   | '/dashboard/showroom'
@@ -35,6 +36,7 @@ export const PAGE_LIST: PageDef[] = [
   { key: '/dashboard/suppliers',   label: 'الموردين',         icon: '🤝', section: 'التوريدات والمخازن' },
   { key: '/dashboard/procurement', label: 'المشتريات',        icon: '🛒', section: 'التوريدات والمخازن' },
   { key: '/dashboard/inventory',   label: 'المخزون',          icon: '📦', section: 'التوريدات والمخازن' },
+  { key: '/dashboard/restock-decisions', label: 'قرارات التوريد', icon: '⚖️', section: 'التوريدات والمخازن' },
   { key: '/dashboard/production',  label: 'الإنتاج',          icon: '⚙️', section: 'التشغيل' },
   { key: '/dashboard/quality',     label: 'الجودة',           icon: '🔍', section: 'التشغيل' },
   { key: '/dashboard/showroom',    label: 'المعروض على الرف', icon: '🏪', section: 'التشغيل' },
@@ -53,6 +55,8 @@ export const SETTINGS_PATH = '/dashboard/settings'  // للـ owner فقط دا�
 // روابط إضافية بتتبع نفس صلاحية صفحة أساسية (مش صفحة منفصلة بالمنطق، بس مسار مختلف)
 export const EXTRA_NAV_LINKS: { after: PageKey; label: string; icon: string; path: string }[] = [
   { after: '/dashboard/orders', label: 'طلب جديد', icon: '➕', path: '/dashboard/orders/new' },
+  { after: '/dashboard/production', label: 'تجميع التطريز', icon: '🧵', path: '/dashboard/production/embroidery' },
+  { after: '/dashboard/production', label: 'تجميع الطباعة', icon: '🖨️', path: '/dashboard/production/printing' },
 ]
 
 // هل المستخدم يقدر يشوف الصفحة دي؟

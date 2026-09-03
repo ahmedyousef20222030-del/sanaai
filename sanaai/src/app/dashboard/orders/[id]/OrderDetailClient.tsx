@@ -546,10 +546,10 @@ export default function OrderDetailClient({ id }: { id: string }) {
           ) : (
             <>
               <button
-                onClick={startEdit}
+                onClick={() => router.push(`/dashboard/orders/${order.order_id}/edit`)}
                 className="px-4 py-2 text-sm bg-[#D4A843] text-[#08090A] rounded-lg font-bold hover:opacity-90 transition"
               >
-                ✎ تعديل
+                ✎ تعديل الطلب
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(true)}

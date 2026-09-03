@@ -35,12 +35,29 @@ export default function ShippingPage() {
       
       if (shipError) throw shipError
 
-      // 2. إذا كانت الحالة "تم التسليم"، نقوم بتحديث تاريخ التسليم الفعلي في جدول الطلبات
+      // 2. إذا كانت الحالة "تم التسليم"، نقوم بتحديث تاريخ التسليم الفعلي
+      //    وحالة الطلب الرئيسية (orders.status) عشان تنعكس في كل الصفحات
+      //    الأخرى (قائمة الطلبات، الـ pipeline، الداشبورد)
       if (status === 'تم التسليم') {
-        await supabase
+        const { error: orderError } = await supabase
           .from('orders')
-          .update({ actual_delivery: new Date().toISOString() })
+          .update({
+            actual_delivery: new Date().toISOString(),
+            status: 'تم التسليم',
+          })
           .eq('id', orderId)
+
+        if (orderError) throw orderError
+
+        // 3. لا يوجد trigger في قاعدة البيانات على UPDATE لجدول orders
+        //    (تم التأكد من ذلك)، لذلك نحدّث production.final_status هنا
+        //    يدويًا عشان صفحة الإنتاج تعكس حالة "تم التسليم" فورًا
+        const { error: prodError } = await supabase
+          .from('production')
+          .update({ final_status: 'تم التسليم' })
+          .eq('order_id', orderId)
+
+        if (prodError) throw prodError
       }
 
       // تحديث الحالة محلياً في الواجهة
