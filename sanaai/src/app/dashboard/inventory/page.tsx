@@ -8,7 +8,10 @@ type Item = {
   color_hex: string | null;
   custom_detail: string | null; image_url: string | null;
   unit: string; current_stock: number; selling_price: number; min_stock: number;
+  branch_id: string | null;
 }
+
+type Branch = { id: string; name: string; type: string; is_main: boolean }
 
 // ألوان جاهزة عشان التجميع يبقى متسق - لو اللون مش في القايمة، اختار "لون آخر"
 // وحدد لونه بالظبط من منتقي الألوان، وهيتسجل ويتعرض صح برضو
@@ -53,11 +56,13 @@ type FormMode = 'add' | 'addColor' | 'edit'
 const EMPTY_FORM = {
   name: '', sku: '', category: '', section: 'يونيفورم',
   size: '', color: '', customColor: '', customColorHex: '#888888', custom_detail: '', image_url: '',
-  unit: 'قطعة', current_stock: '', selling_price: '', min_stock: '',
+  unit: 'قطعة', current_stock: '', selling_price: '', min_stock: '', branch_id: '',
 }
 
 export default function InventoryPage() {
   const [items, setItems] = useState<Item[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [tenantId, setTenantId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [formMode, setFormMode] = useState<FormMode>('add')
@@ -74,13 +79,24 @@ export default function InventoryPage() {
 
   async function load() {
     setLoading(true)
-    const { data, error } = await supabase.from('inventory').select('*').order('name', { ascending: true })
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser) { alert('يجب تسجيل الدخول أولاً'); setLoading(false); return }
+
+    const { data: me, error: meErr } = await supabase.from('users').select('tenant_id').eq('id', authUser.id).single()
+    if (meErr || !me?.tenant_id) { alert('تعذر تحديد بيانات المنشأة'); setLoading(false); return }
+    setTenantId(me.tenant_id)
+
+    const [{ data, error }, { data: branchData }] = await Promise.all([
+      supabase.from('inventory').select('*').eq('tenant_id', me.tenant_id).order('name', { ascending: true }),
+      supabase.from('branches').select('id, name, type, is_main').eq('tenant_id', me.tenant_id).eq('is_active', true).order('is_main', { ascending: false }),
+    ])
     if (error) {
       alert('خطأ في تحميل المخزون: ' + error.message)
       setLoading(false)
       return
     }
     setItems(data || [])
+    setBranches(branchData || [])
     setLoading(false)
   }
 
@@ -115,6 +131,7 @@ export default function InventoryPage() {
       current_stock: String(item.current_stock ?? ''),
       selling_price: String(item.selling_price ?? ''),
       min_stock: String(item.min_stock ?? ''),
+      branch_id: item.branch_id || '',
     })
     setFormMode('edit')
     setEditingId(item.id)
@@ -160,24 +177,16 @@ export default function InventoryPage() {
           current_stock: stock,
           selling_price: price,
           min_stock: minStock,
+          branch_id: form.branch_id || null,
         }).eq('id', editingId)
         if (error) throw error
       } else {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error('يجب تسجيل الدخول أولاً')
-
-        const { data: me, error: meErr } = await supabase
-          .from('users')
-          .select('tenant_id')
-          .eq('id', user.id)
-          .single()
-
-        if (meErr || !me?.tenant_id) throw new Error('تعذر تحديد بيانات المنشأة')
+        if (!tenantId) throw new Error('تعذر تحديد بيانات المنشأة')
 
         // ملاحظة: اسم الصنف هنا هو اسم المنتج الأساسي بدون اللون (مثال: "تيشيرت نص كم")
         // واللون بيتسجل في عموده الخاص، عشان التجميع في الجدول يشتغل صح
         const { error } = await supabase.from('inventory').insert({
-          tenant_id: me.tenant_id,
+          tenant_id: tenantId,
           name: form.name.trim(),
           sku: form.sku.trim() || null,
           category: form.category.trim() || null,
@@ -191,6 +200,7 @@ export default function InventoryPage() {
           current_stock: stock,
           selling_price: price,
           min_stock: minStock,
+          branch_id: form.branch_id || null,
         })
         if (error) throw error
       }
@@ -434,6 +444,20 @@ export default function InventoryPage() {
                   onChange={e => setForm(f => ({ ...f, min_stock: e.target.value }))}
                   className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
                 />
+              </div>
+              <div>
+                <label htmlFor="item-branch" className="block text-xs text-gray-500 mb-1">الفرع / المعرض</label>
+                <select
+                  id="item-branch"
+                  value={form.branch_id}
+                  onChange={e => setForm(f => ({ ...f, branch_id: e.target.value }))}
+                  className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
+                >
+                  <option value="">بدون تحديد</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}{b.is_main ? ' (رئيسي)' : ''}</option>
+                  ))}
+                </select>
               </div>
               <div className="sm:col-span-3">
                 <label htmlFor="item-custom" className="block text-xs text-gray-500 mb-1">

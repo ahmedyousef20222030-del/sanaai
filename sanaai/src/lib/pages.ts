@@ -10,6 +10,7 @@ export type PageKey =
   | '/dashboard/suppliers'
   | '/dashboard/procurement'
   | '/dashboard/inventory'
+  | '/dashboard/branches'
   | '/dashboard/restock-decisions'
   | '/dashboard/production'
   | '/dashboard/quality'
@@ -36,6 +37,7 @@ export const PAGE_LIST: PageDef[] = [
   { key: '/dashboard/suppliers',   label: 'الموردين',         icon: '🤝', section: 'التوريدات والمخازن' },
   { key: '/dashboard/procurement', label: 'المشتريات',        icon: '🛒', section: 'التوريدات والمخازن' },
   { key: '/dashboard/inventory',   label: 'المخزون',          icon: '📦', section: 'التوريدات والمخازن' },
+  { key: '/dashboard/branches',    label: 'الفروع والمعارض',  icon: '🏬', section: 'التوريدات والمخازن' },
   { key: '/dashboard/restock-decisions', label: 'قرارات التوريد', icon: '⚖️', section: 'التوريدات والمخازن' },
   { key: '/dashboard/production',  label: 'الإنتاج',          icon: '⚙️', section: 'التشغيل' },
   { key: '/dashboard/quality',     label: 'الجودة',           icon: '🔍', section: 'التشغيل' },
@@ -65,6 +67,11 @@ export const EXTRA_NAV_LINKS: { after: PageKey; label: string; icon: string; pat
 //   view        → 👁️ قراءة فقط (يشوف الصفحة، مفيش أفعال تعديل/حذف)
 //   edit        → ✏️ يقدر يضيف/يعدّل جوه الصفحة
 //   edit_delete → 🗑️ يقدر يضيف/يعدّل/يحذف جوه الصفحة
+//
+// ملاحظة مهمة: المستوى ده بيتحكم في عرض/إخفاء الصفحة والأزرار في الواجهة بس.
+// صلاحيات الأفعال الحساسة على مستوى الـ API (زي can_edit_production،
+// can_edit_orders...) لسه منفصلة تماماً وبتتفحص على السيرفر في src/lib/server/auth.ts
+// - محدش يلمسها لحد ما نراجعها في مرحلة منفصلة.
 // ═══════════════════════════════════════════════════════════════
 export type PermissionLevel = 'view' | 'edit' | 'edit_delete'
 

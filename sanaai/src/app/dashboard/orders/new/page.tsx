@@ -32,6 +32,8 @@ type User = {
   full_name: string
 }
 
+type Branch = { id: string; name: string; is_main: boolean }
+
 const SECTORS = ['مدارس', 'مطاعم وفنادق', 'شركات كوربوريت', 'حكومي', 'أفراد', 'أخرى']
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'فري سايز', 'مقاس خاص']
 const EXECUTION_TYPES = ['طباعة', 'تطريز', 'بدون'] as const
@@ -59,6 +61,7 @@ type OrderForm = {
   notes: string
   sector: string
   execution_type: typeof EXECUTION_TYPES[number]
+  branch_id: string
 }
 
 type SavedOrder = {
@@ -137,6 +140,7 @@ export default function NewOrderPage() {
   // Data Lists
   const [clients, setClients] = useState<Client[]>([])
   const [inventory, setInventory] = useState<InventoryItem[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
 
   // Loading States
   const [loading, setLoading] = useState(false)
@@ -152,6 +156,7 @@ export default function NewOrderPage() {
     notes: '',
     sector: 'مدارس',
     execution_type: 'طباعة',
+    branch_id: '',
   })
 
   // Client Mode (Select vs New)
@@ -220,6 +225,21 @@ export default function NewOrderPage() {
 
       if (inventoryError) throw inventoryError
       setInventory(inventoryData || [])
+
+      // Fetch Branches
+      const { data: branchesData, error: branchesError } = await supabase
+        .from('branches')
+        .select('id, name, is_main')
+        .eq('tenant_id', userData.tenant_id)
+        .eq('is_active', true)
+        .order('is_main', { ascending: false })
+
+      if (branchesError) throw branchesError
+      setBranches(branchesData || [])
+      if (branchesData && branchesData.length > 0) {
+        const main = branchesData.find(b => b.is_main) || branchesData[0]
+        setForm(prev => ({ ...prev, branch_id: main.id }))
+      }
 
       // Fetch Tenant Name
       const { data: tenantData } = await supabase
@@ -484,6 +504,7 @@ export default function NewOrderPage() {
         status: 'جديد',
         delivery_status: 'في الموعد',
         execution_type: items.length === 0 ? form.execution_type : null,
+        branch_id: form.branch_id || null,
       })
 
       if (orderError) {
@@ -849,6 +870,22 @@ export default function NewOrderPage() {
               />
             )}
           </div>
+
+          {/* ─── BRANCH SECTION ─── */}
+          {branches.length > 1 && (
+            <div className="bg-[#111927] rounded-2xl border border-white/5 p-5">
+              <h2 className="text-sm font-bold text-amber-400 mb-4">🏬 الفرع / المعرض</h2>
+              <select
+                value={form.branch_id}
+                onChange={e => updateForm('branch_id', e.target.value)}
+                className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-amber-500/50"
+              >
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}{b.is_main ? ' (رئيسي)' : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* ─── ITEMS SECTION ─── */}
           <div className="bg-[#111927] rounded-2xl border border-white/5 p-5">

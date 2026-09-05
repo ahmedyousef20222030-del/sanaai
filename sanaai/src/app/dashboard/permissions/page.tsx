@@ -1,7 +1,10 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { PAGE_LIST, PageKey } from '@/lib/pages'
+import {
+  PAGE_LIST, PageKey, PagePermissions, PermissionLevel,
+  PERMISSION_LEVEL_ORDER, PERMISSION_LEVEL_LABELS,
+} from '@/lib/pages'
 
 // ── تعريف الأدوار (متطابقة مع users_role_check في قاعدة البيانات) ──
 const roles: Record<string, string> = {
@@ -44,11 +47,19 @@ const ROLE_DEFAULT_PERMISSIONS: Record<string, Record<PermissionKey, boolean>> =
 }
 
 // ── الصفحات الافتراضية المقترحة لكل دور (نقطة بداية فقط، قابلة للتعديل يدوياً بعد كده) ──
+// كل صفحة هنا بتتحط بمستوى "تعديل وحذف" افتراضياً (زي ما كانت الصلاحية القديمة
+// بتديها وصول كامل للصفحة) - المالك بعد كده يقدر ينزّل المستوى يدوياً لأي مستخدم.
+function pagesToPermissions(keys: PageKey[], level: PermissionLevel = 'edit_delete'): PagePermissions {
+  const map: PagePermissions = {}
+  for (const k of keys) map[k] = level
+  return map
+}
+
 const ROLE_DEFAULT_PAGES: Record<string, PageKey[]> = {
   owner:      PAGE_LIST.map(p => p.key),
   admin:      PAGE_LIST.map(p => p.key),
   sales:      ['/dashboard/orders', '/dashboard/clients', '/dashboard/pipeline', '/dashboard/showroom', '/dashboard/invoices'],
-  production: ['/dashboard/production', '/dashboard/quality', '/dashboard/inventory', '/dashboard/suppliers', '/dashboard/procurement'],
+  production: ['/dashboard/production', '/dashboard/quality', '/dashboard/inventory', '/dashboard/branches', '/dashboard/suppliers', '/dashboard/procurement'],
   design:     ['/dashboard/production', '/dashboard/quality'],
   shipping:   ['/dashboard/orders', '/dashboard/shipping', '/dashboard/clients'],
   hr:         ['/dashboard/employees'],
@@ -76,7 +87,7 @@ type AppUser = {
   can_manage_sales: boolean
   can_manage_users: boolean
   can_view_clients: boolean
-  allowed_pages: string[] | null
+  page_permissions: PagePermissions | null
 }
 
 type ActivityLogEntry = {
@@ -202,7 +213,7 @@ export default function PermissionsPage() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, full_name, email, role, is_active, last_login_at, can_edit_production, can_edit_orders, can_manage_sales, can_manage_users, can_view_clients, allowed_pages')
+        .select('id, full_name, email, role, is_active, last_login_at, can_edit_production, can_edit_orders, can_manage_sales, can_manage_users, can_view_clients, page_permissions')
         .order('full_name', { ascending: true })
       if (error) throw error
       setAppUsers(data || [])
@@ -286,34 +297,37 @@ export default function PermissionsPage() {
     }
   }
 
-  // ── تعديل صفحة واحدة (منح/سحب) لمستخدم معيّن ──
-  async function updateAllowedPage(user: AppUser, pageKey: string, checked: boolean) {
+  // ── تعديل مستوى صلاحية صفحة واحدة لمستخدم معيّن (null = بدون وصول خالص) ──
+  async function updatePagePermission(user: AppUser, pageKey: PageKey, level: PermissionLevel | null) {
     if (!isOwner) return
-    const current = user.allowed_pages || []
-    const next = checked ? Array.from(new Set([...current, pageKey])) : current.filter(p => p !== pageKey)
+    const current = user.page_permissions || {}
+    const next: PagePermissions = { ...current }
+    if (level) next[pageKey] = level
+    else delete next[pageKey]
+
     setSavingRole(user.id)
     try {
-      const { error } = await supabase.from('users').update({ allowed_pages: next }).eq('id', user.id)
+      const { error } = await supabase.from('users').update({ page_permissions: next }).eq('id', user.id)
       if (error) throw error
-      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, allowed_pages: next } : u))
-      logUserActivity('تعديل صفحة مسموحة', user.full_name, { allowed_pages: current }, { allowed_pages: next }).then(loadActivityLog)
+      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, page_permissions: next } : u))
+      logUserActivity('تعديل صلاحية صفحة', user.full_name, { page_permissions: current }, { page_permissions: next }).then(loadActivityLog)
     } catch (err: any) {
-      alert('تعذر تعديل الصفحات المسموحة: ' + err.message)
+      alert('تعذر تعديل صلاحية الصفحة: ' + err.message)
     } finally {
       setSavingRole(null)
     }
   }
 
-  // ── تحديد/إلغاء كل الصفحات لمستخدم معيّن دفعة واحدة ──
-  async function setAllPages(user: AppUser, value: boolean) {
+  // ── تحديد/إلغاء كل الصفحات لمستخدم معيّن دفعة واحدة بمستوى موحّد ──
+  async function setAllPages(user: AppUser, level: PermissionLevel | null) {
     if (!isOwner) return
-    const next = value ? PAGE_LIST.map(p => p.key) : []
+    const next: PagePermissions = level ? Object.fromEntries(PAGE_LIST.map(p => [p.key, level])) : {}
     setSavingRole(user.id)
     try {
-      const { error } = await supabase.from('users').update({ allowed_pages: next }).eq('id', user.id)
+      const { error } = await supabase.from('users').update({ page_permissions: next }).eq('id', user.id)
       if (error) throw error
-      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, allowed_pages: next } : u))
-      logUserActivity(value ? 'تحديد كل الصفحات' : 'إلغاء كل الصفحات', user.full_name, { allowed_pages: user.allowed_pages }, { allowed_pages: next }).then(loadActivityLog)
+      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, page_permissions: next } : u))
+      logUserActivity(level ? 'منح كل الصفحات' : 'إلغاء كل الصفحات', user.full_name, { page_permissions: user.page_permissions }, { page_permissions: next }).then(loadActivityLog)
     } catch (err: any) {
       alert('تعذر تعديل الصفحات: ' + err.message)
     } finally {
@@ -325,15 +339,15 @@ export default function PermissionsPage() {
     if (!isOwner) return
     const defaults = ROLE_DEFAULT_PERMISSIONS[user.role]
     if (!defaults) return
-    const defaultPages = ROLE_DEFAULT_PAGES[user.role] || []
+    const defaultPagePermissions = pagesToPermissions(ROLE_DEFAULT_PAGES[user.role] || [])
     if (!confirm(`سيتم استبدال صلاحيات وصفحات "${user.full_name}" بالإعدادات الافتراضية لدور "${roles[user.role]}". هل تريد المتابعة؟`)) return
 
     setSavingRole(user.id)
     try {
-      const { error } = await supabase.from('users').update({ ...defaults, allowed_pages: defaultPages }).eq('id', user.id)
+      const { error } = await supabase.from('users').update({ ...defaults, page_permissions: defaultPagePermissions }).eq('id', user.id)
       if (error) throw error
-      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...defaults, allowed_pages: defaultPages } : u))
-      logUserActivity('تطبيق إعدادات افتراضية', user.full_name, null, { ...defaults, allowed_pages: defaultPages }).then(loadActivityLog)
+      setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...defaults, page_permissions: defaultPagePermissions } : u))
+      logUserActivity('تطبيق إعدادات افتراضية', user.full_name, null, { ...defaults, page_permissions: defaultPagePermissions }).then(loadActivityLog)
     } catch (err: any) {
       alert('تعذر تطبيق الإعدادات الافتراضية: ' + err.message)
     } finally {
@@ -653,38 +667,42 @@ export default function PermissionsPage() {
                     ))}
                   </div>
 
-                  {/* ── الصفحات المسموح بمشاهدتها (تحكم دقيق لكل صفحة) ── */}
+                  {/* ── مستوى الصلاحية لكل صفحة (قراءة فقط / تعديل / تعديل وحذف) ── */}
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-[11px] text-gray-600 font-semibold">📄 الصفحات المسموح بمشاهدتها</p>
+                    <p className="text-[11px] text-gray-600 font-semibold">📄 صلاحية كل صفحة</p>
                     {isOwner && u.role !== 'owner' && (
                       <div className="flex gap-3">
-                        <button onClick={() => setAllPages(u, true)} disabled={savingRole === u.id} className="text-[11px] text-sky-400 hover:underline disabled:opacity-50">تحديد الكل</button>
-                        <button onClick={() => setAllPages(u, false)} disabled={savingRole === u.id} className="text-[11px] text-gray-500 hover:underline disabled:opacity-50">إلغاء الكل</button>
+                        <button onClick={() => setAllPages(u, 'edit_delete')} disabled={savingRole === u.id} className="text-[11px] text-sky-400 hover:underline disabled:opacity-50">منح الكل (تعديل وحذف)</button>
+                        <button onClick={() => setAllPages(u, null)} disabled={savingRole === u.id} className="text-[11px] text-gray-500 hover:underline disabled:opacity-50">إلغاء الكل</button>
                       </div>
                     )}
                   </div>
                   {u.role === 'owner' ? (
-                    <p className="text-[11px] text-gray-600">صاحب الحساب يشوف كل الصفحات دايمًا، مفيش داعي لتحديدها.</p>
+                    <p className="text-[11px] text-gray-600">صاحب الحساب يشوف كل الصفحات بأعلى صلاحية دايمًا، مفيش داعي لتحديدها.</p>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                       {PAGE_LIST.map(page => {
-                        const checked = u.allowed_pages?.includes(page.key) ?? false
+                        const level = u.page_permissions?.[page.key] ?? null
                         return (
-                          <label
+                          <div
                             key={page.key}
-                            className={`flex items-center gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
-                              checked ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
-                            } ${isOwner ? 'cursor-pointer' : 'cursor-default'} ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                            className={`flex items-center justify-between gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
+                              level ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
+                            } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
                           >
-                            <input
-                              type="checkbox"
-                              checked={checked}
+                            <span className="truncate">{page.icon} {page.label}</span>
+                            <select
+                              value={level ?? ''}
                               disabled={!isOwner}
-                              onChange={e => isOwner && updateAllowedPage(u, page.key, e.target.checked)}
-                              className="accent-sky-500"
-                            />
-                            {page.icon} {page.label}
-                          </label>
+                              onChange={e => isOwner && updatePagePermission(u, page.key, (e.target.value || null) as PermissionLevel | null)}
+                              className="bg-[#0D1B2A] border border-white/10 rounded px-1 py-0.5 text-[10px] text-white focus:outline-none focus:border-sky-500/50 disabled:opacity-60"
+                            >
+                              <option value="">بدون</option>
+                              {PERMISSION_LEVEL_ORDER.map(lvl => (
+                                <option key={lvl} value={lvl}>{PERMISSION_LEVEL_LABELS[lvl]}</option>
+                              ))}
+                            </select>
+                          </div>
                         )
                       })}
                     </div>
@@ -698,7 +716,7 @@ export default function PermissionsPage() {
           )}
           <p className="text-xs text-gray-600 mt-3">
             {isOwner
-              ? '💡 "صلاحيات الأفعال" بتتحكم فيما يقدر يعدّله المستخدم جوه الصفحة، و"الصفحات المسموح بمشاهدتها" بتتحكم في أنهي صفحات تظهر له أصلاً في القائمة الجانبية ويقدر يفتحها. زر "تطبيق الإعدادات الافتراضية للدور" يستبدل الاتنين دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي بند بشكل فردي.'
+              ? '💡 "صلاحيات الأفعال" (تحت) بتتحكم في أفعال محددة على مستوى النظام كله، و"صلاحية كل صفحة" بتتحكم في أنهي صفحات تظهر للمستخدم في القائمة الجانبية وبأنهي مستوى (قراءة فقط / تعديل / تعديل وحذف). زر "تطبيق الإعدادات الافتراضية للدور" يستبدل الاتنين دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي بند بشكل فردي.'
               : '💡 الأدوار والصلاحيات المعروضة هنا للقراءة فقط، ويتم تعديلها من صاحب الحساب (owner) فقط.'}
           </p>
 

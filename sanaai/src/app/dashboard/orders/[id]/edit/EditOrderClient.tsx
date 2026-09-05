@@ -20,6 +20,8 @@ type InventoryItem = {
   selling_price: number
 }
 
+type Branch = { id: string; name: string; is_main: boolean }
+
 const SECTORS = ['مدارس', 'مطاعم وفنادق', 'شركات كوربوريت', 'حكومي', 'أفراد', 'أخرى']
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'فري سايز', 'مقاس خاص']
 const EXECUTION_TYPES = ['طباعة', 'تطريز', 'بدون'] as const
@@ -104,6 +106,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
 
   const [clients, setClients] = useState<Client[]>([])
   const [inventory, setInventory] = useState<InventoryItem[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
 
   const [orderNumber, setOrderNumber] = useState<string>('')
   const [depositPaid, setDepositPaid] = useState<number>(0)
@@ -122,6 +125,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
     quantity: '',
     unit_price: '',
     execution_type: 'طباعة' as typeof EXECUTION_TYPES[number],
+    branch_id: '',
   })
   const [customSector, setCustomSector] = useState('')
 
@@ -157,25 +161,28 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
 
       const { data: order, error: orderError } = await supabase
         .from('orders')
-        .select('id, client_id, sector, expected_delivery, deposit_paid, details, quantity, total_amount, execution_type, order_number')
+        .select('id, client_id, sector, expected_delivery, deposit_paid, details, quantity, total_amount, execution_type, order_number, branch_id')
         .eq('id', orderId)
         .eq('tenant_id', me.tenant_id)
         .single()
       if (orderError) throw orderError
       if (!order) throw new Error('الطلب غير موجود')
 
-      const [{ data: clientsData, error: clientsError }, { data: inventoryData, error: inventoryError }, { data: itemsData, error: itemsError }] =
+      const [{ data: clientsData, error: clientsError }, { data: inventoryData, error: inventoryError }, { data: itemsData, error: itemsError }, { data: branchesData, error: branchesError }] =
         await Promise.all([
           supabase.from('clients').select('id, name, phone').eq('tenant_id', me.tenant_id),
           supabase.from('inventory').select('id, name, current_stock, unit, color, color_hex, selling_price').eq('tenant_id', me.tenant_id),
           supabase.from('order_items').select('*').eq('order_id', orderId).eq('tenant_id', me.tenant_id),
+          supabase.from('branches').select('id, name, is_main').eq('tenant_id', me.tenant_id).eq('is_active', true).order('is_main', { ascending: false }),
         ])
       if (clientsError) throw clientsError
       if (inventoryError) throw inventoryError
       if (itemsError) throw itemsError
+      if (branchesError) throw branchesError
 
       setClients(clientsData || [])
       setInventory(inventoryData || [])
+      setBranches(branchesData || [])
       setOrderNumber(order.order_number || '')
       setDepositPaid(Number(order.deposit_paid) || 0)
 
@@ -189,6 +196,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
         quantity: String(order.quantity ?? ''),
         unit_price: order.quantity ? String(Math.round((Number(order.total_amount) || 0) / order.quantity)) : '',
         execution_type: (order.execution_type as any) || 'طباعة',
+        branch_id: order.branch_id || (branchesData?.find(b => b.is_main)?.id ?? ''),
       })
       if (!knownSector && order.sector) setCustomSector(order.sector)
 
@@ -351,6 +359,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
       }
 
       const newQuantity = items.length > 0 ? items.reduce((s, x) => s + x.qty, 0) : Number(form.quantity)
+      const newRemaining = total - (Number(form.deposit_amount) || 0)
 
       // 2) تحديث صف الطلب نفسه
       const { error: orderError } = await supabase
@@ -360,12 +369,12 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
           sector: effectiveSector,
           expected_delivery: form.expected_delivery,
           deposit_paid: Number(form.deposit_amount) || 0,
-          // remaining_amount: عمود GENERATED محسوب تلقائيًا في قاعدة البيانات (total_amount - deposit_paid)
-          // مينفعش نبعته في الـ update، وإلا Postgres يرمي: "column can only be updated to DEFAULT"
+          remaining_amount: newRemaining,
           details: form.notes,
           quantity: newQuantity,
           total_amount: total,
           execution_type: items.length === 0 ? form.execution_type : null,
+          branch_id: form.branch_id || null,
         })
         .eq('id', orderId)
         .eq('tenant_id', tenantId)
@@ -414,7 +423,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
             size: it.size,
             quantity: it.qty,
             unit_price: it.unit_price,
-            // total_price: عمود GENERATED محسوب تلقائيًا (quantity × unit_price)، مينفعش يتبعت يدوي
+            total_price: it.qty * it.unit_price,
             fulfillment_type: it.status,
             execution_type: it.execution_type,
             source: it.inventory_id ? 'مخزون' : 'خارجي',
@@ -436,7 +445,7 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
           size: it.size,
           quantity: it.qty,
           unit_price: it.unit_price,
-          // total_price: عمود GENERATED محسوب تلقائيًا (quantity × unit_price)، مينفعش يتبعت يدوي
+          total_price: it.qty * it.unit_price,
           fulfillment_type: it.status,
           execution_type: it.execution_type,
           source: it.inventory_id ? 'مخزون' : 'خارجي',
@@ -591,6 +600,22 @@ export default function EditOrderClient({ orderId }: { orderId: string }) {
                 className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50" />
             )}
           </div>
+
+          {/* ─── BRANCH SECTION ─── */}
+          {branches.length > 1 && (
+            <div className="bg-[#111927] rounded-2xl border border-white/5 p-5">
+              <h2 className="text-sm font-bold text-amber-400 mb-4">🏬 الفرع / المعرض</h2>
+              <select
+                value={form.branch_id}
+                onChange={e => updateForm('branch_id', e.target.value)}
+                className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-amber-500/50"
+              >
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}{b.is_main ? ' (رئيسي)' : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* ─── ITEMS SECTION ─── */}
           <div className="bg-[#111927] rounded-2xl border border-white/5 p-5">
