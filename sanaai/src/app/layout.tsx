@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import ImpersonationBanner from '@/components/ImpersonationBanner'
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
   title: 'صَنَاعي',
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body style={{ fontFamily: "'Cairo', sans-serif" }}>
         <ImpersonationBanner />
         {children}
+        <Analytics />
       </body>
     </html>
   )
