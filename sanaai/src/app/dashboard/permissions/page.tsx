@@ -67,6 +67,21 @@ const ROLE_DEFAULT_PAGES: Record<string, PageKey[]> = {
   employee:   [],
 }
 
+// ── تجميع PAGE_LIST حسب حقل section مرة واحدة، مع الحفاظ على ترتيب الظهور الأصلي ──
+// (بيتحسب مرة واحدة برا الكومبوننت لأن PAGE_LIST ثابتة، مفيش داعي نعيد التجميع كل render)
+const PAGE_SECTIONS: { section: string; pages: typeof PAGE_LIST }[] = (() => {
+  const order: string[] = []
+  const map = new Map<string, typeof PAGE_LIST>()
+  for (const page of PAGE_LIST) {
+    if (!map.has(page.section)) {
+      map.set(page.section, [])
+      order.push(page.section)
+    }
+    map.get(page.section)!.push(page)
+  }
+  return order.map(section => ({ section, pages: map.get(section)! }))
+})()
+
 type Employee = {
   id: string
   name: string
@@ -680,31 +695,38 @@ export default function PermissionsPage() {
                   {u.role === 'owner' ? (
                     <p className="text-[11px] text-gray-600">صاحب الحساب يشوف كل الصفحات بأعلى صلاحية دايمًا، مفيش داعي لتحديدها.</p>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                      {PAGE_LIST.map(page => {
-                        const level = u.page_permissions?.[page.key] ?? null
-                        return (
-                          <div
-                            key={page.key}
-                            className={`flex items-center justify-between gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
-                              level ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
-                            } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
-                          >
-                            <span className="truncate">{page.icon} {page.label}</span>
-                            <select
-                              value={level ?? ''}
-                              disabled={!isOwner}
-                              onChange={e => isOwner && updatePagePermission(u, page.key, (e.target.value || null) as PermissionLevel | null)}
-                              className="bg-[#0D1B2A] border border-white/10 rounded px-1 py-0.5 text-[10px] text-white focus:outline-none focus:border-sky-500/50 disabled:opacity-60"
-                            >
-                              <option value="">بدون</option>
-                              {PERMISSION_LEVEL_ORDER.map(lvl => (
-                                <option key={lvl} value={lvl}>{PERMISSION_LEVEL_LABELS[lvl]}</option>
-                              ))}
-                            </select>
+                    <div className="space-y-3">
+                      {PAGE_SECTIONS.map(({ section, pages }) => (
+                        <div key={section}>
+                          <p className="text-[10px] text-gray-500 font-bold mb-1.5 tracking-wide">{section}</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {pages.map(page => {
+                              const level = u.page_permissions?.[page.key] ?? null
+                              return (
+                                <div
+                                  key={page.key}
+                                  className={`flex items-center justify-between gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
+                                    level ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
+                                  } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                                >
+                                  <span className="truncate">{page.icon} {page.label}</span>
+                                  <select
+                                    value={level ?? ''}
+                                    disabled={!isOwner}
+                                    onChange={e => isOwner && updatePagePermission(u, page.key, (e.target.value || null) as PermissionLevel | null)}
+                                    className="bg-[#0D1B2A] border border-white/10 rounded px-1 py-0.5 text-[10px] text-white focus:outline-none focus:border-sky-500/50 disabled:opacity-60"
+                                  >
+                                    <option value="">بدون</option>
+                                    {PERMISSION_LEVEL_ORDER.map(lvl => (
+                                      <option key={lvl} value={lvl}>{PERMISSION_LEVEL_LABELS[lvl]}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
