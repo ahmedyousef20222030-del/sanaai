@@ -8,6 +8,7 @@ export type PageKey =
   | '/dashboard/clients'
   | '/dashboard/pipeline'
   | '/dashboard/production'
+  | '/dashboard/production/targets'
   | '/dashboard/quality'
   | '/dashboard/inventory'
   | '/dashboard/showroom'
@@ -52,6 +53,7 @@ export const PAGE_LIST: PageDef[] = [
   { key: '/dashboard/employees',         label: 'الموظفين',          icon: '👥', section: 'الإدارة' },
   { key: '/dashboard/complaints',        label: 'الشكاوى',           icon: '📢', section: 'الإدارة' },
   { key: '/dashboard/permissions',       label: 'الصلاحيات',         icon: '🔑', section: 'الإدارة' },
+  { key: '/dashboard/production/targets', label: 'تارجت الإنتاج',   icon: '🎯', section: 'الإدارة' },
   { key: '/dashboard/changelog',         label: 'سجل التغييرات',     icon: '📋', section: 'الإدارة' },
 ]
 
@@ -117,7 +119,17 @@ export function getPageLevel(
 }
 
 // تحديد أنهي PageKey مسؤول عن مسار معيّن (بيغطي الصفحات الفرعية زي orders/[id])
+//
+// ملاحظة مهمة: لازم ناخد أطول/أدق تطابق، مش أول تطابق بالترتيب في PAGE_LIST.
+// لو دورنا على أول تطابق بس، مسار زي '/dashboard/production/targets' كان
+// هيتلقط غلط تحت '/dashboard/production' (لأنها أسبق في المصفوفة وبتعمل
+// startsWith('/dashboard/production/') بنجاح)، مع إن فيه تسجيل مخصّص وأدق
+// ليها. الحل: نختار من بين كل الصفحات المتطابقة أطول key (أكتر تحديدًا).
 export function matchPageKeyForPath(pathname: string): PageKey | null {
-  const match = PAGE_LIST.find(p => pathname === p.key || pathname.startsWith(p.key + '/'))
-  return match ? match.key : null
+  const matches = PAGE_LIST.filter(p => pathname === p.key || pathname.startsWith(p.key + '/'))
+  if (matches.length === 0) return null
+  const best = matches.reduce((longest, current) =>
+    current.key.length > longest.key.length ? current : longest
+  )
+  return best.key
 }
