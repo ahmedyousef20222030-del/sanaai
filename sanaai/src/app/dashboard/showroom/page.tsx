@@ -38,7 +38,7 @@ export default function ShowroomPage() {
 
   const [form, setForm] = useState({
     name: '', size: 'M', color: '', current_stock: '0',
-    selling_price: '', min_stock: '5', section: 'رجالي', branch_id: '',
+    selling_price: '', min_stock: '5', section: 'رجالي',
   })
 
   useEffect(() => {
@@ -65,7 +65,7 @@ export default function ShowroomPage() {
 
         setTenantId(me.tenant_id)
 
-        // ── جلب المخزون والفروع معاً (مقصور على منشأة المستخدم الحالي فقط) ──
+        // ── جلب المخزون (مقصور على منشأة المستخدم الحالي فقط) ──
         const [{ data, error: itemsError }, { data: branchData }] = await Promise.all([
           supabase.from('inventory').select('*').eq('tenant_id', me.tenant_id).order('updated_at', { ascending: false }),
           supabase.from('branches').select('id, name, is_main').eq('tenant_id', me.tenant_id).eq('is_active', true).order('is_main', { ascending: false }),
@@ -108,24 +108,9 @@ export default function ShowroomPage() {
     return { label: 'متوفر', color: 'bg-green-500/20 text-green-400 border-green-500/30', urgent: false }
   }
 
-  function branchName(branchId: string | null) {
-    if (!branchId) return '—'
-    return branches.find(b => b.id === branchId)?.name || '—'
-  }
-
-  // الفرع الافتراضي لصنف جديد: نفس الفرع المفلتر عليه حاليًا لو محدد فرع بعينه،
-  // وإلا الفرع الرئيسي لو موجود، وإلا بدون تحديد
-  function defaultBranchId() {
-    if (branchFilter !== 'all') return branchFilter
-    return branches.find(b => b.is_main)?.id || ''
-  }
-
   function openAdd() {
     setEditItem(null)
-    setForm({
-      name: '', size: 'M', color: '', current_stock: '0',
-      selling_price: '', min_stock: '5', section: 'رجالي', branch_id: defaultBranchId(),
-    })
+    setForm({ name: '', size: 'M', color: '', current_stock: '0', selling_price: '', min_stock: '5', section: 'رجالي' })
     setModal(true)
   }
 
@@ -135,7 +120,6 @@ export default function ShowroomPage() {
       name: item.name, size: item.size || 'M', color: item.color || '',
       current_stock: String(item.current_stock), selling_price: String(item.selling_price),
       min_stock: String(item.min_stock), section: item.section || 'رجالي',
-      branch_id: item.branch_id || '',
     })
     setModal(true)
   }
@@ -157,7 +141,6 @@ export default function ShowroomPage() {
       selling_price: Number(form.selling_price) || 0,
       min_stock: Number(form.min_stock) || 0,
       section: form.section,
-      branch_id: form.branch_id || null,
       updated_at: new Date().toISOString(),
     }
 
@@ -252,11 +235,7 @@ export default function ShowroomPage() {
             <table className="w-full text-sm">
               <thead className="border-b border-white/5">
                 <tr className="text-right">
-                  {[
-                    'الموديل', 'القسم', 'المقاس', 'اللون',
-                    ...(branches.length > 1 ? ['الفرع'] : []),
-                    'الكمية', 'السعر', 'الحالة', 'تعديل سريع', 'إجراء',
-                  ].map(h => (
+                  {['الموديل', 'القسم', 'المقاس', 'اللون', 'الكمية', 'السعر', 'الحالة', 'تعديل سريع', 'إجراء'].map(h => (
                     <th key={h} className="px-4 py-3 text-xs text-gray-600 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -275,9 +254,6 @@ export default function ShowroomPage() {
                       <td className="px-4 py-3 text-xs text-gray-500">{item.section || 'عام'}</td>
                       <td className="px-4 py-3 font-mono text-xs font-bold text-amber-400">{item.size || '—'}</td>
                       <td className="px-4 py-3 text-xs text-gray-300">{item.color || '—'}</td>
-                      {branches.length > 1 && (
-                        <td className="px-4 py-3 text-xs text-gray-400">{branchName(item.branch_id)}</td>
-                      )}
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <button onClick={() => adjustQty(item, -1)} className="w-6 h-6 rounded-lg bg-red-500/10 text-red-400 border border-red-500/25 flex items-center justify-center text-xs font-bold hover:bg-red-500/20 transition">−</button>
@@ -341,13 +317,6 @@ export default function ShowroomPage() {
               <div>
                 <label className="block text-xs text-gray-500 mb-1">حد أمان الرف *</label>
                 <input className={inputCls} type="number" value={form.min_stock} onChange={e => setForm(f => ({ ...f, min_stock: e.target.value }))} />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">الفرع / المعرض</label>
-                <select className={inputCls} value={form.branch_id} onChange={e => setForm(f => ({ ...f, branch_id: e.target.value }))}>
-                  <option value="">بدون تحديد</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}{b.is_main ? ' (رئيسي)' : ''}</option>)}
-                </select>
               </div>
             </div>
             <div className="flex gap-3 mt-6">
