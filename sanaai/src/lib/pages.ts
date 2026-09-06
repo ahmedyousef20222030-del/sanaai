@@ -7,15 +7,15 @@ export type PageKey =
   | '/dashboard/orders'
   | '/dashboard/clients'
   | '/dashboard/pipeline'
-  | '/dashboard/suppliers'
-  | '/dashboard/procurement'
-  | '/dashboard/inventory'
-  | '/dashboard/branches'
-  | '/dashboard/restock-decisions'
   | '/dashboard/production'
   | '/dashboard/quality'
+  | '/dashboard/inventory'
   | '/dashboard/showroom'
+  | '/dashboard/restock-decisions'
+  | '/dashboard/suppliers'
+  | '/dashboard/procurement'
   | '/dashboard/shipping'
+  | '/dashboard/branches'
   | '/dashboard/invoices'
   | '/dashboard/employees'
   | '/dashboard/complaints'
@@ -30,33 +30,38 @@ export type PageDef = {
 }
 
 // كل الصفحات القابلة لمنح/سحب صلاحية عرضها لكل مستخدم على حدة
+// (الترتيب هنا = ترتيب ظهور الأقسام والعناصر في القائمة الجانبية)
 export const PAGE_LIST: PageDef[] = [
-  { key: '/dashboard/orders',      label: 'الطلبات',          icon: '📦', section: 'المبيعات' },
-  { key: '/dashboard/clients',     label: 'العملاء',          icon: '🏢', section: 'المبيعات' },
-  { key: '/dashboard/pipeline',    label: 'خط الإنتاج',       icon: '🔄', section: 'المبيعات' },
-  { key: '/dashboard/suppliers',   label: 'الموردين',         icon: '🤝', section: 'التوريدات والمخازن' },
-  { key: '/dashboard/procurement', label: 'المشتريات',        icon: '🛒', section: 'التوريدات والمخازن' },
-  { key: '/dashboard/inventory',   label: 'المخزون',          icon: '📦', section: 'التوريدات والمخازن' },
-  { key: '/dashboard/branches',    label: 'الفروع والمعارض',  icon: '🏬', section: 'التوريدات والمخازن' },
-  { key: '/dashboard/restock-decisions', label: 'قرارات التوريد', icon: '⚖️', section: 'التوريدات والمخازن' },
-  { key: '/dashboard/production',  label: 'الإنتاج',          icon: '⚙️', section: 'التشغيل' },
-  { key: '/dashboard/quality',     label: 'الجودة',           icon: '🔍', section: 'التشغيل' },
-  { key: '/dashboard/showroom',    label: 'المعروض على الرف', icon: '🏪', section: 'التشغيل' },
-  { key: '/dashboard/shipping',    label: 'الشحن',            icon: '🚚', section: 'التشغيل' },
-  { key: '/dashboard/invoices',    label: 'الفواتير',         icon: '🧾', section: 'التشغيل' },
-  { key: '/dashboard/employees',   label: 'الموظفين',         icon: '👥', section: 'الإدارة' },
-  { key: '/dashboard/complaints',  label: 'الشكاوى',          icon: '📢', section: 'الإدارة' },
-  { key: '/dashboard/permissions', label: 'الصلاحيات',        icon: '🔑', section: 'الإدارة' },
-  { key: '/dashboard/changelog',   label: 'سجل التغييرات',    icon: '📋', section: 'الإدارة' },
+  { key: '/dashboard/orders',            label: 'الطلبات',           icon: '📦', section: 'العملاء والطلبات' },
+  { key: '/dashboard/clients',           label: 'العملاء',           icon: '🏢', section: 'العملاء والطلبات' },
+
+  { key: '/dashboard/pipeline',          label: 'خط الإنتاج',        icon: '🔄', section: 'الإنتاج' },
+  { key: '/dashboard/production',        label: 'الإنتاج',           icon: '⚙️', section: 'الإنتاج' },
+  { key: '/dashboard/quality',           label: 'الجودة',            icon: '🔍', section: 'الإنتاج' },
+
+  { key: '/dashboard/inventory',         label: 'المخزون',           icon: '📦', section: 'المخازن والتوريد' },
+  { key: '/dashboard/showroom',          label: 'المعروض على الرف',  icon: '🏪', section: 'المخازن والتوريد' },
+  { key: '/dashboard/restock-decisions', label: 'قرارات التوريد',    icon: '⚖️', section: 'المخازن والتوريد' },
+  { key: '/dashboard/suppliers',         label: 'الموردين',          icon: '🤝', section: 'المخازن والتوريد' },
+  { key: '/dashboard/procurement',       label: 'المشتريات',         icon: '🛒', section: 'المخازن والتوريد' },
+
+  { key: '/dashboard/shipping',          label: 'الشحن',             icon: '🚚', section: 'الشحن والفروع' },
+  { key: '/dashboard/branches',          label: 'الفروع والمعارض',   icon: '🏬', section: 'الشحن والفروع' },
+  { key: '/dashboard/invoices',          label: 'الفواتير',          icon: '🧾', section: 'الشحن والفروع' },
+
+  { key: '/dashboard/employees',         label: 'الموظفين',          icon: '👥', section: 'الإدارة' },
+  { key: '/dashboard/complaints',        label: 'الشكاوى',           icon: '📢', section: 'الإدارة' },
+  { key: '/dashboard/permissions',       label: 'الصلاحيات',         icon: '🔑', section: 'الإدارة' },
+  { key: '/dashboard/changelog',         label: 'سجل التغييرات',     icon: '📋', section: 'الإدارة' },
 ]
 
 // صفحات خاصة خارج نظام page_permissions
 export const HOME_PATH = '/dashboard'               // ظاهرة للكل دايمًا، مش قابلة للسحب
 export const SETTINGS_PATH = '/dashboard/settings'  // للـ owner فقط دايمًا، مش قابلة للمنح لغيره
+export const MY_PERFORMANCE_PATH = '/dashboard/my-performance'  // ظاهرة للكل، بلا صلاحية
 
 // روابط إضافية بتتبع نفس صلاحية صفحة أساسية (مش صفحة منفصلة بالمنطق، بس مسار مختلف)
 export const EXTRA_NAV_LINKS: { after: PageKey; label: string; icon: string; path: string }[] = [
-  { after: '/dashboard/orders', label: 'طلب جديد', icon: '➕', path: '/dashboard/orders/new' },
   { after: '/dashboard/production', label: 'تجميع التطريز', icon: '🧵', path: '/dashboard/production/embroidery' },
   { after: '/dashboard/production', label: 'تجميع الطباعة', icon: '🖨️', path: '/dashboard/production/printing' },
 ]

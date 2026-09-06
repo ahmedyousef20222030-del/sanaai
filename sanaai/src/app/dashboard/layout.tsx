@@ -7,6 +7,7 @@ import {
   PAGE_LIST,
   HOME_PATH,
   SETTINGS_PATH,
+  MY_PERFORMANCE_PATH,
   EXTRA_NAV_LINKS,
   canAccessPageKey,
   matchPageKeyForPath,
@@ -72,6 +73,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
     }
+
+    // الأداء الشخصي: ظاهر لكل مستخدم مسجّل دخول، بلا حاجة لصلاحية صريحة
+    grouped['الإدارة'] = grouped['الإدارة'] || []
+    grouped['الإدارة'].push({ label: 'الأداء الشخصي', icon: '📊', path: MY_PERFORMANCE_PATH })
+
     if (isOwner) {
       grouped['الإدارة'] = grouped['الإدارة'] || []
       grouped['الإدارة'].push({ label: 'الإعدادات', icon: '⚙️', path: SETTINGS_PATH })
@@ -86,6 +92,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!me) return false
     if (isOwner) return true
     if (pathname === HOME_PATH) return true
+    if (pathname === MY_PERFORMANCE_PATH || pathname.startsWith(MY_PERFORMANCE_PATH + '/')) return true
     if (pathname === SETTINGS_PATH || pathname.startsWith(SETTINGS_PATH + '/')) return false
 
     const pageKey = matchPageKeyForPath(pathname)
