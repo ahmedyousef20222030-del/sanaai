@@ -1,12 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 
 // ══════════════════════════════════════════════════════════════════════════
-// صفحة "المكن وخطوط الإنتاج" — إدارة كاملة (إضافة / تعديل / حذف / ربط)
-// مبنية كصفحة مستقلة بحالة محلية (local state) عشان تشتغل فورًا من غير باك إند.
-// كل نقاط الربط مع الـ API / Supabase متعلّم عليها بتعليق "TODO: API" عشان
-// تقدر توصلها بقاعدة البيانات لاحقًا بنفس نمط باقي صفحات المشروع.
+// صفحة "المكن وخطوط الإنتاج" — متوصلة فعليًا بقاعدة البيانات عن طريق:
+//   /api/production/lines        (GET, POST)
+//   /api/production/lines/[id]   (PATCH, DELETE)
+//   /api/production/machines     (GET, POST)
+//   /api/production/machines/[id] (PATCH, DELETE)
+// نفّذ ملف SQL المرفق (production_lines + machines) والـ Routes المرفقة قبل
+// استخدام الصفحة دي، وإلا هترجع أخطاء 404/500 من الـ API.
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── الأنواع ──────────────────────────────────────────────────────────────
@@ -70,15 +74,40 @@ const MACHINE_TYPE_SUGGESTIONS = [
   'مكينة تغليف',
 ]
 
-let idCounter = 1
-const genId = () => `local-${Date.now()}-${idCounter++}`
+// ── دالة موحّدة لاستدعاء الـ API: بترفق توكن الجلسة (Bearer) بنفس نمط
+// lib/api/client.ts، وبتستخرج رسالة الخطأ من الاستجابة عند الفشل.
+// ⚠️ من غير الهيدر ده، getCurrentUser() في السيرفر بترفض الطلب فورًا
+// بـ "Missing authentication token" — وده كان سبب فشل الصفحة بالكامل
+// (تحميل وحفظ) قبل التعديل.
+async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession()
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  }
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`
+  }
+
+  const res = await fetch(url, { ...options, headers })
+  const json = await res.json().catch(() => null)
+  if (!res.ok) {
+    const message = json?.error?.message || json?.message || 'حدث خطأ غير متوقع'
+    throw new Error(message)
+  }
+  return (json?.data ?? json) as T
+}
 
 export default function MachinesAndLinesPage() {
   const [activeTab, setActiveTab] = useState<'lines' | 'machines'>('lines')
 
   const [lines, setLines] = useState<ProductionLine[]>([])
   const [machines, setMachines] = useState<Machine[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [savingLine, setSavingLine] = useState(false)
+  const [savingMachine, setSavingMachine] = useState(false)
 
   // ── فورم خط الإنتاج ──
   const [showLineForm, setShowLineForm] = useState(false)
@@ -106,20 +135,24 @@ export default function MachinesAndLinesPage() {
   const [machineFilter, setMachineFilter] = useState<'all' | MachineStatus>('all')
   const [search, setSearch] = useState('')
 
-  // ── جلب البيانات (لو الـ API متاح، وإلا هيفضل فاضي من غير خطأ) ──
+  // ── جلب البيانات من الـ API ──
   useEffect(() => {
     fetchAll()
   }, [])
 
   async function fetchAll() {
     setLoading(true)
+    setLoadError(null)
     try {
-      // TODO: API — استبدل السطرين دول بالجلب الفعلي من قاعدة البيانات، مثال:
-      // const res = await fetch('/api/production/lines'); const json = await res.json()
-      // const res2 = await fetch('/api/production/machines'); const json2 = await res2.json()
-      // setLines(json.data); setMachines(json2.data)
+      const [linesData, machinesData] = await Promise.all([
+        apiFetch<ProductionLine[]>('/api/production/lines'),
+        apiFetch<Machine[]>('/api/production/machines'),
+      ])
+      setLines(linesData || [])
+      setMachines(machinesData || [])
     } catch (err) {
       console.error('Error fetching lines/machines:', err)
+      setLoadError(err instanceof Error ? err.message : 'تعذر تحميل البيانات')
     } finally {
       setLoading(false)
     }
@@ -170,24 +203,40 @@ export default function MachinesAndLinesPage() {
       alert('برجاء إدخال اسم خط الإنتاج')
       return
     }
-    if (editingLineId) {
-      setLines(prev => prev.map(l => (l.id === editingLineId ? { ...l, ...lineForm } : l)))
-      // TODO: API — await fetch(`/api/production/lines/${editingLineId}`, { method: 'PATCH', body: JSON.stringify(lineForm) })
-    } else {
-      const newLine: ProductionLine = { id: genId(), ...lineForm }
-      setLines(prev => [...prev, newLine])
-      // TODO: API — await fetch('/api/production/lines', { method: 'POST', body: JSON.stringify(lineForm) })
+    setSavingLine(true)
+    try {
+      if (editingLineId) {
+        const updated = await apiFetch<ProductionLine>(`/api/production/lines/${editingLineId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(lineForm),
+        })
+        setLines(prev => prev.map(l => (l.id === editingLineId ? updated : l)))
+      } else {
+        const created = await apiFetch<ProductionLine>('/api/production/lines', {
+          method: 'POST',
+          body: JSON.stringify(lineForm),
+        })
+        setLines(prev => [...prev, created])
+      }
+      setShowLineForm(false)
+    } catch (err) {
+      alert('تعذر حفظ خط الإنتاج: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'))
+    } finally {
+      setSavingLine(false)
     }
-    setShowLineForm(false)
   }
 
-  function handleDeleteLine(lineId: string) {
+  async function handleDeleteLine(lineId: string) {
     const inUse = getMachinesForLine(lineId).length
     if (inUse > 0 && !confirm(`الخط مربوط بـ ${inUse} مكينة، هيتم فك ربطهم تلقائيًا. متأكد من الحذف؟`)) return
     if (inUse === 0 && !confirm('متأكد من حذف خط الإنتاج؟')) return
-    setLines(prev => prev.filter(l => l.id !== lineId))
-    setMachines(prev => prev.map(m => (m.line_id === lineId ? { ...m, line_id: null } : m)))
-    // TODO: API — await fetch(`/api/production/lines/${lineId}`, { method: 'DELETE' })
+    try {
+      await apiFetch(`/api/production/lines/${lineId}`, { method: 'DELETE' })
+      setLines(prev => prev.filter(l => l.id !== lineId))
+      setMachines(prev => prev.map(m => (m.line_id === lineId ? { ...m, line_id: null } : m)))
+    } catch (err) {
+      alert('تعذر حذف خط الإنتاج: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'))
+    }
   }
 
   // ── فورم المكينة: فتح / حفظ / حذف ──
@@ -215,22 +264,38 @@ export default function MachinesAndLinesPage() {
       alert('برجاء إدخال اسم/كود المكينة')
       return
     }
+    setSavingMachine(true)
     const payload = { ...machineForm, line_id: machineForm.line_id || null }
-    if (editingMachineId) {
-      setMachines(prev => prev.map(m => (m.id === editingMachineId ? { ...m, ...payload } : m)))
-      // TODO: API — await fetch(`/api/production/machines/${editingMachineId}`, { method: 'PATCH', body: JSON.stringify(payload) })
-    } else {
-      const newMachine: Machine = { id: genId(), ...payload }
-      setMachines(prev => [...prev, newMachine])
-      // TODO: API — await fetch('/api/production/machines', { method: 'POST', body: JSON.stringify(payload) })
+    try {
+      if (editingMachineId) {
+        const updated = await apiFetch<Machine>(`/api/production/machines/${editingMachineId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        setMachines(prev => prev.map(m => (m.id === editingMachineId ? updated : m)))
+      } else {
+        const created = await apiFetch<Machine>('/api/production/machines', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setMachines(prev => [...prev, created])
+      }
+      setShowMachineForm(false)
+    } catch (err) {
+      alert('تعذر حفظ المكينة: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'))
+    } finally {
+      setSavingMachine(false)
     }
-    setShowMachineForm(false)
   }
 
-  function handleDeleteMachine(machineId: string) {
+  async function handleDeleteMachine(machineId: string) {
     if (!confirm('متأكد من حذف المكينة؟')) return
-    setMachines(prev => prev.filter(m => m.id !== machineId))
-    // TODO: API — await fetch(`/api/production/machines/${machineId}`, { method: 'DELETE' })
+    try {
+      await apiFetch(`/api/production/machines/${machineId}`, { method: 'DELETE' })
+      setMachines(prev => prev.filter(m => m.id !== machineId))
+    } catch (err) {
+      alert('تعذر حذف المكينة: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'))
+    }
   }
 
   // ── ملخصات سريعة ──
@@ -274,6 +339,15 @@ export default function MachinesAndLinesPage() {
           )}
         </div>
       </div>
+
+      {loadError && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl px-4 py-3 mb-6 flex items-center justify-between">
+          <span>⚠️ {loadError}</span>
+          <button onClick={fetchAll} className="text-xs font-bold underline hover:no-underline">
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -522,9 +596,10 @@ export default function MachinesAndLinesPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleSaveLine}
-                className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition"
+                disabled={savingLine}
+                className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
               >
-                ✅ حفظ
+                {savingLine ? 'جاري الحفظ...' : '✅ حفظ'}
               </button>
               <button
                 onClick={() => setShowLineForm(false)}
@@ -625,9 +700,10 @@ export default function MachinesAndLinesPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleSaveMachine}
-                className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition"
+                disabled={savingMachine}
+                className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
               >
-                ✅ حفظ
+                {savingMachine ? 'جاري الحفظ...' : '✅ حفظ'}
               </button>
               <button
                 onClick={() => setShowMachineForm(false)}
