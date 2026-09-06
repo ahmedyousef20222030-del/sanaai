@@ -36,7 +36,7 @@ export const PAGE_LIST: PageDef[] = [
   { key: '/dashboard/clients',           label: 'العملاء',           icon: '🏢', section: 'العملاء والطلبات' },
 
   { key: '/dashboard/pipeline',          label: 'تتبع مراحل الطلبات', icon: '🔄', section: 'الإنتاج' },
-  { key: '/dashboard/production',        label: '🏭 المكن وخطوط الإنتاج', icon: '🏭', section: 'الإنتاج' },
+  { key: '/dashboard/production',        label: ' المكن وخطوط الإنتاج', icon: '🏭', section: 'الإنتاج' },
   { key: '/dashboard/quality',           label: 'الجودة',            icon: '🔍', section: 'الإنتاج' },
 
   { key: '/dashboard/inventory',         label: 'المخزون',           icon: '📦', section: 'المخازن والتوريد' },
