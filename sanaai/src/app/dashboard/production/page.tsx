@@ -51,6 +51,7 @@ const ALL_PAGES_EDIT_DELETE: PagePermissions = Object.fromEntries(
 )
 
 // ── الصفحات والصلاحيات الافتراضية المقترحة لكل دور (نقطة بداية فقط، قابلة للتعديل يدوياً بعد كده) ──
+// محدّثة لتغطية كل الصفحات الحالية بما فيها: restock-decisions، branches، complaints، changelog
 const ROLE_DEFAULT_PAGE_PERMISSIONS: Record<string, PagePermissions> = {
   owner: ALL_PAGES_EDIT_DELETE,
   admin: ALL_PAGES_EDIT_DELETE,
@@ -60,6 +61,7 @@ const ROLE_DEFAULT_PAGE_PERMISSIONS: Record<string, PagePermissions> = {
     '/dashboard/pipeline': 'view',
     '/dashboard/showroom': 'view',
     '/dashboard/invoices': 'view',
+    '/dashboard/complaints': 'view',
   },
   production: {
     '/dashboard/production': 'edit',
@@ -67,6 +69,7 @@ const ROLE_DEFAULT_PAGE_PERMISSIONS: Record<string, PagePermissions> = {
     '/dashboard/inventory': 'view',
     '/dashboard/suppliers': 'view',
     '/dashboard/procurement': 'view',
+    '/dashboard/restock-decisions': 'view',
   },
   design: {
     '/dashboard/production': 'edit',
@@ -76,6 +79,7 @@ const ROLE_DEFAULT_PAGE_PERMISSIONS: Record<string, PagePermissions> = {
     '/dashboard/orders': 'edit',
     '/dashboard/shipping': 'edit',
     '/dashboard/clients': 'view',
+    '/dashboard/branches': 'view',
   },
   hr: {
     '/dashboard/employees': 'edit',
