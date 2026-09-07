@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import InvoicePDF from '@/components/InvoicePDF'
 import { Loader2, FileText, CheckCircle2, CreditCard, AlertTriangle, Search, Download, X, Link } from 'lucide-react'
 
-// دالة مساعدة محلية لجلب معرّف المصنع (Tenant)
+// 🛡️ دالة مساعدة محلية لجلب معرّف المصنع (Tenant) بشكل آمن
 async function getTenantId() {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return null
@@ -72,6 +72,7 @@ export default function InvoicesPage() {
       const { data, error } = await supabase
         .from('invoices')
         .select('*, orders(order_number, total_amount, deposit_paid, clients(name, phone))')
+        // 🔒 حماية صارمة: جلب فواتير هذا المصنع فقط (يُمنع التداخل نهائياً)
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
       
@@ -94,14 +95,12 @@ export default function InvoicesPage() {
     }
   }
 
-  // 🛠️ تم تصحيح الدالة لاحترام قاعدة البيانات المحسوبة
   async function updateStatus(invoice: Invoice, newStatus: string) {
     setSaving(invoice.id)
     setErrorMsg(null)
     try {
       const tenantId = await getTenantId()
       
-      // 1. نجهز البيانات لقاعدة البيانات (بدون remaining_amount)
       let dbUpdateData: any = { status: newStatus }
       let newPaid = invoice.paid_amount
 
@@ -110,7 +109,7 @@ export default function InvoicesPage() {
         dbUpdateData.paid_amount = newPaid
       }
 
-      // إرسال التحديث لـ Supabase
+      // 🔒 إرسال التحديث مع شرط tenant_id لمنع تعديل فواتير المصانع الأخرى
       const { error } = await supabase
         .from('invoices')
         .update(dbUpdateData)
@@ -119,14 +118,13 @@ export default function InvoicesPage() {
 
       if (error) throw error
 
-      // 2. تحديث الواجهة محلياً ليرى المستخدم النتيجة فوراً
       setInvoices(v => v.map(x => {
         if (x.id === invoice.id) {
           return {
             ...x,
             status: newStatus,
             paid_amount: newPaid,
-            remaining_amount: x.total_amount - newPaid // الحساب في الواجهة فقط
+            remaining_amount: x.total_amount - newPaid
           }
         }
         return x
@@ -138,7 +136,6 @@ export default function InvoicesPage() {
     }
   }
 
-  // 🛠️ تم تصحيح الدالة لاحترام قاعدة البيانات المحسوبة
   async function submitPartialPayment() {
     if (!partialInvoice) return
     const amount = Number(partialAmount)
@@ -161,7 +158,7 @@ export default function InvoicesPage() {
     try {
       const tenantId = await getTenantId()
       
-      // إرسال التحديث لـ Supabase (بدون remaining_amount)
+      // 🔒 إرسال التحديث مع شرط tenant_id
       const { error } = await supabase
         .from('invoices')
         .update({
@@ -173,17 +170,16 @@ export default function InvoicesPage() {
 
       if (error) throw error
       
-      // تحديث الواجهة محلياً
       setInvoices(v => v.map(x => x.id === partialInvoice.id ? {
         ...x,
         status: computedStatus,
         paid_amount: newPaid,
-        remaining_amount: newRemaining // الحساب في الواجهة فقط
+        remaining_amount: newRemaining 
       } : x))
       
       setPartialInvoice(null)
     } catch (err: any) {
-      setErrorMsg(err.message) // يفضل عرض نص الخطأ الفعلي كما طلبنا
+      setErrorMsg(err.message)
     } finally {
       setSaving(null)
     }
@@ -413,7 +409,6 @@ export default function InvoicesPage() {
         </div>
       )}
 
-      {/* 💳 نافذة الدفع الجزئي (Modal) */}
       {partialInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-[#111927] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden relative">
