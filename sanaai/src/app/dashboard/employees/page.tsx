@@ -17,7 +17,9 @@ const roles: Record<string, string> = {
   production: 'إنتاج',
   design: 'تصميم',
   shipping: 'شحن',
-  accountant: 'محاسب'
+  hr: 'موارد بشرية',
+  accountant: 'محاسب',
+  employee: 'موظف'
 }
 
 export default function EmployeesPage() {
@@ -27,18 +29,10 @@ export default function EmployeesPage() {
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', phone: '', role: 'production', salary: 0 })
-
-  // الأهداف الشهرية
-  const [targets, setTargets] = useState<Record<string, number>>({})
-  const [savingTarget, setSavingTarget] = useState<string | null>(null)
-  const monthStart = new Date()
-  monthStart.setDate(1)
-  const monthKey = monthStart.toISOString().slice(0, 10)
-  const monthLabel = monthStart.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' })
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     load()
-    loadTargets()
   }, [])
 
   async function load() {
@@ -55,39 +49,6 @@ export default function EmployeesPage() {
       console.error('Error loading employees:', err.message)
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function loadTargets() {
-    try {
-      const { data, error } = await supabase
-        .from('department_targets')
-        .select('department, target_amount')
-        .eq('month', monthKey)
-
-      if (error) throw error
-      const map: Record<string, number> = {}
-      ;(data || []).forEach(t => { map[t.department] = t.target_amount })
-      setTargets(map)
-    } catch (err: any) {
-      console.error('Error loading targets:', err.message)
-    }
-  }
-
-  async function saveTarget(department: string, value: number) {
-    setSavingTarget(department)
-    try {
-      const tenantId = await getMyTenantId()
-      const { error } = await supabase
-        .from('department_targets')
-        .upsert({ tenant_id: tenantId, department, month: monthKey, target_amount: value }, { onConflict: 'tenant_id,department,month' })
-
-      if (error) throw error
-      setTargets(t => ({ ...t, [department]: value }))
-    } catch (err: any) {
-      alert('تعذر حفظ الهدف: ' + err.message)
-    } finally {
-      setSavingTarget(null)
     }
   }
 
@@ -115,18 +76,15 @@ export default function EmployeesPage() {
       .eq('id', user.id)
       .single()
 
-    if (meError) {
-      throw new Error(`تعذر تحديد هوية الشركة: ${meError.message}`)
-    }
-    if (!me?.tenant_id) {
-      throw new Error('تعذر تحديد هوية الشركة: لا يوجد tenant_id مرتبط بهذا المستخدم')
+    if (meError || !me?.tenant_id) {
+      throw new Error('تعذر تحديد هوية الشركة')
     }
 
     return me.tenant_id
   }
 
   async function handleSave() {
-    if (!form.name) {
+    if (!form.name.trim()) {
       alert('الاسم مطلوب')
       return
     }
@@ -160,44 +118,34 @@ export default function EmployeesPage() {
     }
   }
 
+  const filteredEmployees = employees.filter(emp => 
+    emp.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (emp.phone && emp.phone.includes(searchQuery))
+  )
+
   return (
     <div className="p-6 min-h-screen" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-black text-white">👥 إدارة الموظفين</h1>
-          <p className="text-sm text-gray-500 mt-1">قائمة وبيانات موظفي المصنع والورشة</p>
+          <p className="text-sm text-gray-500 mt-1">قائمة وبيانات الموظفين والعمال في المنظومة</p>
         </div>
         <button
           onClick={openAddForm}
-          className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20"
+          className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20 whitespace-nowrap"
         >
-          ➕ موظف جديد
+          ➕ إضافة موظف
         </button>
       </div>
 
-      <div className="bg-[#111927] rounded-2xl border border-white/5 p-5 mb-6">
-        <h2 className="text-sm font-bold text-amber-400 mb-1">🎯 أهداف المبيعات الشهرية — {monthLabel}</h2>
-        <p className="text-xs text-gray-600 mb-4">حدد هدف مبيعات كل قسم لهذا الشهر، وكل موظف هيشوف هدف قسمه في تقرير أدائه الشخصي</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {Object.entries(roles).map(([key, label]) => (
-            <div key={key} className="flex items-center gap-2 bg-[#0D1B2A] rounded-lg px-3 py-2 border border-white/5">
-              <span className="text-xs text-gray-400 w-20 shrink-0">{label}</span>
-              <input
-                type="number"
-                min={0}
-                defaultValue={targets[key] || 0}
-                onBlur={e => {
-                  const val = Number(e.target.value) || 0
-                  if (val !== (targets[key] || 0)) saveTarget(key, val)
-                }}
-                className="w-full bg-transparent text-sm text-white outline-none text-left"
-                dir="ltr"
-              />
-              <span className="text-[10px] text-gray-600 shrink-0">ج.م</span>
-              {savingTarget === key && <span className="text-[10px] text-amber-400 shrink-0">...</span>}
-            </div>
-          ))}
-        </div>
+      <div className="mb-6">
+        <input
+          type="text"
+          placeholder="🔍 ابحث بالاسم أو رقم الهاتف..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full max-w-md bg-[#111927] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-amber-500/50 outline-none"
+        />
       </div>
 
       {showForm && (
@@ -227,10 +175,11 @@ export default function EmployeesPage() {
                   value={form.phone}
                   onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
                   className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
+                  dir="ltr"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">الدور / الوظيفة</label>
+                <label className="block text-xs text-gray-500 mb-1">القسم / الإدارة</label>
                 <select
                   value={form.role}
                   onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
@@ -244,10 +193,10 @@ export default function EmployeesPage() {
                 </select>
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-xs text-gray-500 mb-1">الراتب الشهري</label>
+                <label className="block text-xs text-gray-500 mb-1">الراتب الأساسي (ج.م)</label>
                 <input
                   type="number"
-                  value={form.salary}
+                  value={form.salary || ''}
                   onChange={e => setForm(f => ({ ...f, salary: Number(e.target.value) }))}
                   className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
                 />
@@ -260,7 +209,7 @@ export default function EmployeesPage() {
                 disabled={saving}
                 className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
               >
-                {saving ? 'جاري الحفظ...' : editingId ? '✅ حفظ التعديلات' : '✅ حفظ الموظف'}
+                {saving ? 'جاري الحفظ...' : editingId ? '✅ حفظ التعديلات' : '✅ تسجيل الموظف'}
               </button>
               <button
                 onClick={() => { setShowForm(false); setEditingId(null) }}
@@ -274,31 +223,42 @@ export default function EmployeesPage() {
       )}
 
       {loading ? (
-        <div className="text-center py-16 text-gray-600">جاري تحميل الموظفين...</div>
+        <div className="text-center py-16 text-gray-600">جاري تحميل البيانات...</div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {employees.map(emp => (
-            <div key={emp.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all group">
-              <div className="flex items-start justify-between mb-2">
-                <h3 className="font-bold text-white text-base group-hover:text-amber-400 transition">{emp.name}</h3>
+          {filteredEmployees.map(emp => (
+            <div key={emp.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all group relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-1 h-full bg-amber-500/50 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h3 className="font-bold text-white text-base group-hover:text-amber-400 transition">{emp.name}</h3>
+                  <span className="inline-block mt-1 px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[10px] text-gray-400">
+                    {roles[emp.role] || emp.role}
+                  </span>
+                </div>
                 <button
                   onClick={() => openEditForm(emp)}
-                  aria-label={`تعديل ${emp.name}`}
-                  className="text-gray-500 hover:text-amber-400 text-xs transition"
+                  className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:bg-amber-500/20 hover:text-amber-400 transition"
+                  title="تعديل البيانات"
                 >
                   ✏️
                 </button>
               </div>
-              <div className="space-y-1">
-                <p className="text-gray-500 text-xs">💼 الوظيفة: {roles[emp.role] || emp.role}</p>
-                <p className="text-gray-500 text-xs">📞 الهاتف: {emp.phone || 'غير متوفر'}</p>
-                <p className="text-amber-500 text-xs font-bold">💵 الراتب: {emp.salary} ج.م</p>
+              <div className="space-y-1.5 pt-2 border-t border-white/5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">الهاتف:</span>
+                  <span className="text-gray-300" dir="ltr">{emp.phone || '—'}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">الراتب:</span>
+                  <span className="text-amber-400 font-bold">{emp.salary.toLocaleString()} ج.م</span>
+                </div>
               </div>
             </div>
           ))}
-          {employees.length === 0 && (
-            <div className="col-span-full text-center py-16 text-gray-600 text-sm">
-              لا يوجد موظفون مسجلون بعد
+          {filteredEmployees.length === 0 && (
+            <div className="col-span-full text-center py-16 text-gray-600 text-sm bg-[#111927] rounded-2xl border border-white/5">
+              لا يوجد موظفون مطابقون لبحثك
             </div>
           )}
         </div>
