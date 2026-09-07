@@ -28,7 +28,8 @@ export async function GET() {
 
     const { data: targets, error: targetsError } = await supabaseAdmin
       .from('production_targets')
-      .select('id, entity_type, entity_id, target_quantity, period')
+      // ملاحظة: اسم العمود الفعلي في الجدول هو target_period (مش period)
+      .select('id, entity_type, entity_id, target_quantity, target_period')
       .eq('tenant_id', caller.tenantId)
       .is('effective_to', null)
 
@@ -59,7 +60,7 @@ export async function GET() {
 
     const results = await Promise.all(
       targets.map(async (target) => {
-        const startDate = periodStart(target.period as Period)
+        const startDate = periodStart(target.target_period as Period)
 
         let query = supabaseAdmin
           .from('machine_activity_logs')
@@ -92,7 +93,7 @@ export async function GET() {
           0,
         )
         const percent =
-          target.target_quantity > 0
+          target.target_quantity && target.target_quantity > 0
             ? Math.round((actual / target.target_quantity) * 100)
             : 0
 
