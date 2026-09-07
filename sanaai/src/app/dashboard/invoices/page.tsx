@@ -5,13 +5,26 @@ import { supabase } from '@/lib/supabase'
 import InvoicePDF from '@/components/InvoicePDF'
 import { Loader2, FileText, CheckCircle2, CreditCard, AlertTriangle, Search, Download, X, Link } from 'lucide-react'
 
-// دالة مساعدة محلية لجلب معرّف المصنع (Tenant) بدون الحاجة لتعديل supabase.ts
+// 💡 الدالة المصححة: جلب المستخدم الحالي أولاً ثم الـ tenant_id الخاص به
 async function getTenantId() {
-  const { data, error } = await supabase.from('users').select('tenant_id').single()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  
+  if (authError || !user) {
+    console.error('Error fetching auth user:', authError)
+    return null
+  }
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('tenant_id')
+    .eq('id', user.id)
+    .single()
+    
   if (error) {
     console.error('Error fetching tenant_id:', error)
     return null
   }
+  
   return data?.tenant_id
 }
 
@@ -67,7 +80,7 @@ export default function InvoicesPage() {
       const { data, error } = await supabase
         .from('invoices')
         .select('*, orders(order_number, total_amount, deposit_paid, clients(name, phone))')
-        .eq('tenant_id', tenantId) // تطبيق عزل البيانات بشكل آمن
+        .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
       
       if (error) throw error
