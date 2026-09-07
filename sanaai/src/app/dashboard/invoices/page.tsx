@@ -5,14 +5,10 @@ import { supabase } from '@/lib/supabase'
 import InvoicePDF from '@/components/InvoicePDF'
 import { Loader2, FileText, CheckCircle2, CreditCard, AlertTriangle, Search, Download, X, Link } from 'lucide-react'
 
-// 💡 الدالة المصححة: جلب المستخدم الحالي أولاً ثم الـ tenant_id الخاص به
+// دالة مساعدة محلية لجلب معرّف المصنع (Tenant)
 async function getTenantId() {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
-  
-  if (authError || !user) {
-    console.error('Error fetching auth user:', authError)
-    return null
-  }
+  if (authError || !user) return null
 
   const { data, error } = await supabase
     .from('users')
@@ -20,11 +16,7 @@ async function getTenantId() {
     .eq('id', user.id)
     .single()
     
-  if (error) {
-    console.error('Error fetching tenant_id:', error)
-    return null
-  }
-  
+  if (error) return null
   return data?.tenant_id
 }
 
@@ -102,26 +94,43 @@ export default function InvoicesPage() {
     }
   }
 
+  // 🛠️ تم تصحيح الدالة لاحترام قاعدة البيانات المحسوبة
   async function updateStatus(invoice: Invoice, newStatus: string) {
     setSaving(invoice.id)
     setErrorMsg(null)
     try {
       const tenantId = await getTenantId()
-      let updateData: Partial<Invoice> = { status: newStatus }
       
+      // 1. نجهز البيانات لقاعدة البيانات (بدون remaining_amount)
+      let dbUpdateData: any = { status: newStatus }
+      let newPaid = invoice.paid_amount
+
       if (newStatus === 'مدفوع') {
-        updateData.paid_amount = invoice.total_amount
-        updateData.remaining_amount = 0
+        newPaid = invoice.total_amount
+        dbUpdateData.paid_amount = newPaid
       }
 
+      // إرسال التحديث لـ Supabase
       const { error } = await supabase
         .from('invoices')
-        .update(updateData)
+        .update(dbUpdateData)
         .eq('id', invoice.id)
         .eq('tenant_id', tenantId)
 
       if (error) throw error
-      setInvoices(v => v.map(x => x.id === invoice.id ? { ...x, ...updateData } : x))
+
+      // 2. تحديث الواجهة محلياً ليرى المستخدم النتيجة فوراً
+      setInvoices(v => v.map(x => {
+        if (x.id === invoice.id) {
+          return {
+            ...x,
+            status: newStatus,
+            paid_amount: newPaid,
+            remaining_amount: x.total_amount - newPaid // الحساب في الواجهة فقط
+          }
+        }
+        return x
+      }))
     } catch (err: any) {
       setErrorMsg('خطأ في تحديث الحالة: ' + err.message)
     } finally {
@@ -129,6 +138,7 @@ export default function InvoicesPage() {
     }
   }
 
+  // 🛠️ تم تصحيح الدالة لاحترام قاعدة البيانات المحسوبة
   async function submitPartialPayment() {
     if (!partialInvoice) return
     const amount = Number(partialAmount)
@@ -150,28 +160,30 @@ export default function InvoicesPage() {
     setErrorMsg(null)
     try {
       const tenantId = await getTenantId()
+      
+      // إرسال التحديث لـ Supabase (بدون remaining_amount)
       const { error } = await supabase
         .from('invoices')
         .update({
           status: computedStatus,
-          paid_amount: newPaid,
-          remaining_amount: newRemaining
+          paid_amount: newPaid
         })
         .eq('id', partialInvoice.id)
         .eq('tenant_id', tenantId)
 
       if (error) throw error
       
+      // تحديث الواجهة محلياً
       setInvoices(v => v.map(x => x.id === partialInvoice.id ? {
         ...x,
         status: computedStatus,
         paid_amount: newPaid,
-        remaining_amount: newRemaining
+        remaining_amount: newRemaining // الحساب في الواجهة فقط
       } : x))
       
       setPartialInvoice(null)
     } catch (err: any) {
-      setErrorMsg('خطأ في تسجيل الدفعة: ' + err.message)
+      setErrorMsg(err.message) // يفضل عرض نص الخطأ الفعلي كما طلبنا
     } finally {
       setSaving(null)
     }
