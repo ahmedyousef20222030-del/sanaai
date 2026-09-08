@@ -9,15 +9,45 @@ import { supabase } from '@/lib/supabase' // عدّل المسار حسب مكا
 
 export type OrderStatus = 'جديد' | 'تحت الإنتاج' | 'جاهز للشحن' | 'تم التسليم'
 
+export interface ClientInfo {
+  name: string
+  phone: string | null
+  sector: string | null
+}
+
+export interface OrderItem {
+  id: string
+  name: string
+  size: string | null
+  color: string | null
+  quantity: number
+  custom_detail: string | null
+  execution_type: string | null
+  unit_price: number | null
+  total_price: number | null
+}
+
+export interface OrderImage {
+  id: string
+  image_url: string
+  sort_order: number
+}
+
 export interface Order {
   id: string
   order_number: string
-  client_name: string
   execution_type: string
   status: OrderStatus
   quantity: number
-  due_date: string | null
-  created_at: string
+  sector: string | null
+  order_date: string | null
+  expected_delivery: string | null
+  notes: string | null
+  details: string | null
+  attachments: string[] | null
+  clients: ClientInfo | null
+  order_items: OrderItem[]
+  order_images: OrderImage[]
 }
 
 interface ProductionTypeBoardProps {
@@ -36,7 +66,7 @@ export interface OrderStep {
 }
 
 // ---------------------------------------------
-// إعدادات أعمدة الـ Board (عدّل العناوين والألوان براحتك)
+// إعدادات أعمدة الـ Board
 // ---------------------------------------------
 
 const STATUS_COLUMNS: { key: OrderStatus; label: string; color: string }[] = [
@@ -47,7 +77,7 @@ const STATUS_COLUMNS: { key: OrderStatus; label: string; color: string }[] = [
 ]
 
 // ---------------------------------------------
-// Hook: جلب أوردرات نوع تنفيذ معين + تحديث لحظي (realtime)
+// Hook: جلب الأوردرات كاملة (مع العميل، الأصناف، الصور) + تحديث لحظي
 // ---------------------------------------------
 
 function useOrdersByExecutionType(executionType: string) {
@@ -61,15 +91,34 @@ function useOrdersByExecutionType(executionType: string) {
 
     const { data, error: fetchError } = await supabase
       .from('orders')
-      .select('*')
+      .select(
+        `
+        id,
+        order_number,
+        execution_type,
+        status,
+        quantity,
+        sector,
+        order_date,
+        expected_delivery,
+        notes,
+        details,
+        attachments,
+        clients ( name, phone, sector ),
+        order_items ( id, name, size, color, quantity, custom_detail, execution_type, unit_price, total_price ),
+        order_images ( id, image_url, sort_order )
+      `
+      )
       .eq('execution_type', executionType)
+      .is('deleted_at', null) // استبعاد الأوردرات المحذوفة (soft delete)
       .order('created_at', { ascending: false })
+      .order('sort_order', { foreignTable: 'order_images', ascending: true })
 
     if (fetchError) {
       setError(fetchError.message)
       setOrders([])
     } else {
-      setOrders(data ?? [])
+      setOrders((data as unknown as Order[]) ?? [])
     }
 
     setIsLoading(false)
@@ -78,25 +127,32 @@ function useOrdersByExecutionType(executionType: string) {
   useEffect(() => {
     fetchOrders()
 
-    // تحديث لحظي: أي إضافة/تعديل/حذف في جدول orders بيتحدث في الـ board تلقائي
-    const channel = supabase
+    // تحديث لحظي على orders نفسها
+    const ordersChannel = supabase
       .channel(`orders-${executionType}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'orders',
-          filter: `execution_type=eq.${executionType}`,
-        },
-        () => {
-          fetchOrders()
-        }
+        { event: '*', schema: 'public', table: 'orders', filter: `execution_type=eq.${executionType}` },
+        () => fetchOrders()
       )
       .subscribe()
 
+    // تحديث لحظي لو اتضاف/اتعدل صنف داخل أي أوردر
+    const itemsChannel = supabase
+      .channel(`order-items-${executionType}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchOrders())
+      .subscribe()
+
+    // تحديث لحظي لو اتضافت/اتشالت صورة
+    const imagesChannel = supabase
+      .channel(`order-images-${executionType}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_images' }, () => fetchOrders())
+      .subscribe()
+
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(ordersChannel)
+      supabase.removeChannel(itemsChannel)
+      supabase.removeChannel(imagesChannel)
     }
   }, [executionType, fetchOrders])
 
@@ -109,7 +165,6 @@ function useOrdersByExecutionType(executionType: string) {
 
 function useOrderSteps(orderId: string) {
   const [steps, setSteps] = useState<OrderStep[]>([])
-  const [isLoading, setIsLoading] = useState(true)
 
   const fetchSteps = useCallback(async () => {
     const { data } = await supabase
@@ -119,7 +174,6 @@ function useOrderSteps(orderId: string) {
       .order('sequence', { ascending: true })
 
     setSteps(data ?? [])
-    setIsLoading(false)
   }, [orderId])
 
   useEffect(() => {
@@ -140,7 +194,6 @@ function useOrderSteps(orderId: string) {
   }, [orderId, fetchSteps])
 
   const toggleStep = useCallback(async (step: OrderStep) => {
-    // تحديث فوري في الواجهة قبل رد السيرفر (optimistic update)
     setSteps((prev) =>
       prev.map((s) => (s.id === step.id ? { ...s, is_completed: !s.is_completed } : s))
     )
@@ -166,7 +219,44 @@ function useOrderSteps(orderId: string) {
     [orderId, steps]
   )
 
-  return { steps, isLoading, toggleStep, addCustomStep }
+  return { steps, toggleStep, addCustomStep }
+}
+
+// ---------------------------------------------
+// Component: صورة مصغّرة قابلة للتكبير
+// ---------------------------------------------
+
+function ImageThumbnail({ url }: { url: string }) {
+  return (
+    <img
+      src={url}
+      alt="مرفق الأوردر"
+      onClick={() => window.open(url, '_blank')}
+      loading="lazy"
+      style={{
+        width: 72,
+        height: 72,
+        objectFit: 'cover',
+        borderRadius: 8,
+        cursor: 'pointer',
+        border: '1px solid #eee',
+      }}
+    />
+  )
+}
+
+// ---------------------------------------------
+// Component: صف بيانات صغير (label: value) — لتقليل التكرار
+// ---------------------------------------------
+
+function InfoRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+  if (value === null || value === undefined || value === '') return null
+  return (
+    <div style={{ display: 'flex', gap: 6, fontSize: 12.5 }}>
+      <span style={{ color: '#8a8a8a', minWidth: 68 }}>{label}</span>
+      <span style={{ color: '#222', fontWeight: 500 }}>{value}</span>
+    </div>
+  )
 }
 
 // ---------------------------------------------
@@ -175,11 +265,17 @@ function useOrderSteps(orderId: string) {
 
 function OrderCard({ order }: { order: Order }) {
   const { steps, toggleStep, addCustomStep } = useOrderSteps(order.id)
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isStepsExpanded, setIsStepsExpanded] = useState(true)
   const [newStepName, setNewStepName] = useState('')
 
   const completedCount = steps.filter((s) => s.is_completed).length
   const progress = steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : null
+
+  // الصور: أولوية لجدول order_images، ولو فاضي يرجع لعمود attachments القديم
+  const images =
+    order.order_images.length > 0
+      ? order.order_images.map((img) => img.image_url)
+      : order.attachments ?? []
 
   const handleAddStep = async () => {
     const trimmed = newStepName.trim()
@@ -188,38 +284,188 @@ function OrderCard({ order }: { order: Order }) {
     setNewStepName('')
   }
 
+  const formattedDelivery = order.expected_delivery
+    ? new Date(order.expected_delivery).toLocaleDateString('ar-EG', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      })
+    : null
+
   return (
     <div
       style={{
         background: '#fff',
-        borderRadius: 10,
-        padding: 12,
-        marginBottom: 10,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+        borderRadius: 12,
+        padding: 14,
+        marginBottom: 12,
+        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
         border: '1px solid #eee',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-        <strong>#{order.order_number}</strong>
-        <span style={{ color: '#666', fontSize: 13 }}>{order.quantity} قطعة</span>
+      {/* رأس الكارت: رقم الأوردر + الكمية الإجمالية + القطاع */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <strong style={{ fontSize: 15 }}>#{order.order_number}</strong>
+        <span
+          style={{
+            color: '#111',
+            fontSize: 12.5,
+            background: '#f3f4f6',
+            padding: '3px 10px',
+            borderRadius: 20,
+            fontWeight: 600,
+          }}
+        >
+          {order.quantity} قطعة إجمالي
+        </span>
       </div>
-      <div style={{ fontSize: 14, marginBottom: 4 }}>{order.client_name}</div>
-      {order.due_date && (
-        <div style={{ fontSize: 12, color: '#999', marginBottom: 8 }}>
-          تسليم: {new Date(order.due_date).toLocaleDateString('ar-EG')}
+
+      {/* بيانات أساسية: العميل / القطاع / تاريخ التسليم */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 3,
+          marginBottom: 10,
+          paddingBottom: 10,
+          borderBottom: '1px solid #f2f2f2',
+        }}
+      >
+        <InfoRow label="العميل" value={order.clients?.name} />
+        {order.clients?.phone && <InfoRow label="التليفون" value={order.clients.phone} />}
+        <InfoRow label="القطاع" value={order.sector ?? order.clients?.sector} />
+        {formattedDelivery && (
+          <InfoRow
+            label="تسليم متوقع"
+            value={formattedDelivery}
+          />
+        )}
+      </div>
+
+      {/* ملاحظات/تفاصيل الأوردر — أهم حاجة لفنى التطريز */}
+      {(order.details || order.notes) && (
+        <div
+          style={{
+            fontSize: 13,
+            lineHeight: 1.6,
+            background: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 10,
+            color: '#78350f',
+          }}
+        >
+          {order.details && (
+            <div>
+              <span style={{ fontWeight: 700 }}>تفاصيل الأوردر: </span>
+              {order.details}
+            </div>
+          )}
+          {order.notes && (
+            <div style={{ marginTop: order.details ? 4 : 0 }}>
+              <span style={{ fontWeight: 700 }}>ملاحظات: </span>
+              {order.notes}
+            </div>
+          )}
         </div>
       )}
 
+      {/* الأصناف والكميات — مقاس/لون/تفاصيل مخصصة لكل صنف */}
+      {order.order_items.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 700 }}>
+            الأصناف ({order.order_items.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {order.order_items.map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  fontSize: 13,
+                  background: '#f8f9fa',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #eee',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <span style={{ fontWeight: 600 }}>{item.name}</span>
+                  <strong>×{item.quantity}</strong>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4, color: '#666', fontSize: 12 }}>
+                  {item.color && (
+                    <span>
+                      🎨 اللون: <b style={{ color: '#333' }}>{item.color}</b>
+                    </span>
+                  )}
+                  {item.size && (
+                    <span>
+                      📏 المقاس: <b style={{ color: '#333' }}>{item.size}</b>
+                    </span>
+                  )}
+                  {item.execution_type && item.execution_type !== order.execution_type && (
+                    <span>
+                      ⚙️ التنفيذ: <b style={{ color: '#333' }}>{item.execution_type}</b>
+                    </span>
+                  )}
+                </div>
+                {item.custom_detail && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontSize: 12.5,
+                      color: '#78350f',
+                      background: '#fffbeb',
+                      border: '1px solid #fde68a',
+                      borderRadius: 6,
+                      padding: '5px 8px',
+                    }}
+                  >
+                    ✏️ {item.custom_detail}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* الصور المرفقة — دايمًا ظاهرة، ده مهم للفنى عشان يشوف التصميم/العينة */}
+      {images.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 700 }}>
+            الصور المرفقة ({images.length})
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {images.map((url, i) => (
+              <ImageThumbnail key={i} url={url} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* خطوات التنفيذ (checklist) */}
       {steps.length > 0 && (
         <>
-          {/* شريط تقدم الخطوات */}
           <div
-            onClick={() => setIsExpanded((v) => !v)}
+            onClick={() => setIsStepsExpanded((v) => !v)}
             style={{ cursor: 'pointer', marginTop: 6 }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
-              <span>خطوات التنفيذ ({completedCount}/{steps.length})</span>
-              <span>{isExpanded ? '▲' : '▼'}</span>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 12,
+                color: '#666',
+                marginBottom: 4,
+                fontWeight: 700,
+              }}
+            >
+              <span>
+                خطوات التنفيذ ({completedCount}/{steps.length})
+              </span>
+              <span>{isStepsExpanded ? '▲' : '▼'}</span>
             </div>
             <div style={{ background: '#eee', borderRadius: 6, height: 6, overflow: 'hidden' }}>
               <div
@@ -233,7 +479,7 @@ function OrderCard({ order }: { order: Order }) {
             </div>
           </div>
 
-          {isExpanded && (
+          {isStepsExpanded && (
             <div style={{ marginTop: 10, borderTop: '1px solid #f0f0f0', paddingTop: 10 }}>
               {steps.map((step) => (
                 <label
@@ -258,7 +504,6 @@ function OrderCard({ order }: { order: Order }) {
                 </label>
               ))}
 
-              {/* إضافة خطوة خاصة بهذا الأوردر بس (زي "تطريز خاص") */}
               <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                 <input
                   type="text"
@@ -311,7 +556,7 @@ function StatusColumn({
   orders: Order[]
 }) {
   return (
-    <div style={{ flex: 1, minWidth: 260 }}>
+    <div style={{ flex: 1, minWidth: 320 }}>
       <div
         style={{
           display: 'flex',
@@ -371,7 +616,6 @@ export default function ProductionTypeBoard({
       if (map[order.status]) {
         map[order.status].push(order)
       } else {
-        // status مش من القيم المعروفة - يظهر في عمود "غير مصنف" بدل ما يختفي بصمت
         unmatched.push(order)
       }
     }
