@@ -9,6 +9,8 @@ export type PageKey =
   | '/dashboard/pipeline'
   | '/dashboard/production'
   | '/dashboard/production/targets'
+  | '/dashboard/production/embroidery'
+  | '/dashboard/production/printing'
   | '/dashboard/quality'
   | '/dashboard/inventory'
   | '/dashboard/showroom'
@@ -42,6 +44,8 @@ export const PAGE_LIST: PageDef[] = [
   { key: '/dashboard/production',        label: ' المكن وخطوط الإنتاج', icon: '🏭', section: 'الإنتاج' },
   { key: '/dashboard/quality',           label: 'الجودة',            icon: '🔍', section: 'الإنتاج' },
   { key: '/dashboard/production/targets', label: 'تارجت الإنتاج',   icon: '🎯', section: 'الإنتاج' },
+  { key: '/dashboard/production/embroidery', label: 'تجميع التطريز', icon: '🧵', section: 'الإنتاج' },
+  { key: '/dashboard/production/printing',   label: 'تجميع الطباعة', icon: '🖨️', section: 'الإنتاج' },
 
   { key: '/dashboard/inventory',         label: 'المخزون',           icon: '📦', section: 'المخازن والتوريد' },
   { key: '/dashboard/showroom',          label: 'المعروض على الرف',  icon: '🏪', section: 'المخازن والتوريد' },
@@ -63,10 +67,9 @@ export const SETTINGS_PATH = '/dashboard/settings'  // للـ owner فقط دا�
 export const MY_PERFORMANCE_PATH = '/dashboard/my-performance'  // ظاهرة للكل، بلا صلاحية
 
 // روابط إضافية بتتبع نفس صلاحية صفحة أساسية (مش صفحة منفصلة بالمنطق، بس مسار مختلف)
-export const EXTRA_NAV_LINKS: { after: PageKey; label: string; icon: string; path: string }[] = [
-  { after: '/dashboard/production', label: 'تجميع التطريز', icon: '🧵', path: '/dashboard/production/embroidery' },
-  { after: '/dashboard/production', label: 'تجميع الطباعة', icon: '🖨️', path: '/dashboard/production/printing' },
-]
+// ملاحظة: "تجميع التطريز" و"تجميع الطباعة" اتنقلوا لصفحات مستقلة كاملة في PAGE_LIST
+// فوق (بصلاحية خاصة بيهم)، فمعادش لهم داعي هنا.
+export const EXTRA_NAV_LINKS: { after: PageKey; label: string; icon: string; path: string }[] = []
 
 // ═══════════════════════════════════════════════════════════════
 // مستويات الصلاحية لكل صفحة على حدة (بدل صلاحية "عرض" بوليانية واحدة).
