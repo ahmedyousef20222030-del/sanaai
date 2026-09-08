@@ -34,11 +34,14 @@ export type PageDef = {
 // (الترتيب هنا = ترتيب ظهور الأقسام والعناصر في القائمة الجانبية)
 export const PAGE_LIST: PageDef[] = [
   { key: '/dashboard/orders',            label: 'الطلبات',           icon: '📦', section: 'العملاء والطلبات' },
+  { key: '/dashboard/invoices',          label: 'الفواتير',          icon: '🧾', section: 'العملاء والطلبات' },
   { key: '/dashboard/clients',           label: 'العملاء',           icon: '🏢', section: 'العملاء والطلبات' },
+  { key: '/dashboard/complaints',        label: 'الشكاوى',           icon: '📢', section: 'العملاء والطلبات' },
 
   { key: '/dashboard/pipeline',          label: 'تتبع مراحل الطلبات', icon: '🔄', section: 'الإنتاج' },
   { key: '/dashboard/production',        label: ' المكن وخطوط الإنتاج', icon: '🏭', section: 'الإنتاج' },
   { key: '/dashboard/quality',           label: 'الجودة',            icon: '🔍', section: 'الإنتاج' },
+  { key: '/dashboard/production/targets', label: 'تارجت الإنتاج',   icon: '🎯', section: 'الإنتاج' },
 
   { key: '/dashboard/inventory',         label: 'المخزون',           icon: '📦', section: 'المخازن والتوريد' },
   { key: '/dashboard/showroom',          label: 'المعروض على الرف',  icon: '🏪', section: 'المخازن والتوريد' },
@@ -48,12 +51,9 @@ export const PAGE_LIST: PageDef[] = [
 
   { key: '/dashboard/shipping',          label: 'الشحن',             icon: '🚚', section: 'الشحن والفروع' },
   { key: '/dashboard/branches',          label: 'الفروع والمعارض',   icon: '🏬', section: 'الشحن والفروع' },
-  { key: '/dashboard/invoices',          label: 'الفواتير',          icon: '🧾', section: 'الشحن والفروع' },
 
   { key: '/dashboard/employees',         label: 'الموظفين',          icon: '👥', section: 'الإدارة' },
-  { key: '/dashboard/complaints',        label: 'الشكاوى',           icon: '📢', section: 'الإدارة' },
   { key: '/dashboard/permissions',       label: 'الصلاحيات',         icon: '🔑', section: 'الإدارة' },
-  { key: '/dashboard/production/targets', label: 'تارجت الإنتاج',   icon: '🎯', section: 'الإدارة' },
   { key: '/dashboard/changelog',         label: 'سجل التغييرات',     icon: '📋', section: 'الإدارة' },
 ]
 
