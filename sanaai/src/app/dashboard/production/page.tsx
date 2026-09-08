@@ -349,7 +349,7 @@ export default function MachinesAndLinesPage() {
         apiFetch<ProductionLine[]>('/api/production/lines', { signal }),
         apiFetch<Machine[]>('/api/production/machines', { signal }),
         apiFetch<ProductionLog[]>('/api/production/logs', { signal }),
-        apiFetch<Employee[]>('/api/employees', { signal }),
+        apiFetch<Employee[]>('/api/production/employees', { signal }),
       ])
       setLines(linesData || [])
       setMachines(machinesData || [])
@@ -680,7 +680,7 @@ export default function MachinesAndLinesPage() {
     setNewEmployeeError(null)
     setSavingEmployee(true)
     try {
-      const created = await apiFetch<Employee>('/api/employees', {
+      const created = await apiFetch<Employee>('/api/production/employees', {
         method: 'POST',
         body: JSON.stringify({ name: trimmed }),
       })
