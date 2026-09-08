@@ -1,26 +1,68 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0D1B2A; /* هوية صناعي: Dark Navy */
+  --foreground: #F0EDE8; /* لون النصوص الأساسي */
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: 'Cairo', sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0D1B2A;
+    --foreground: #F0EDE8;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Cairo', sans-serif;
+  direction: rtl; /* تفعيل الاتجاه العربي افتراضياً */
+}
+
+/* 
+  ========================================
+  حل جذري لتجاوب الجداول (Responsive Tables)
+  ========================================
+*/
+@media (max-width: 768px) {
+  /* إجبار الجداول على الاحتفاظ بعرض أدنى لعدم تداخل الأعمدة */
+  table {
+    min-width: 800px; 
+  }
+  
+  /* الحاويات التي تلتف حول الجداول تتحول لـ Scrollable أفقي */
+  .table-responsive-wrapper,
+  .overflow-x-auto,
+  table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch; /* تمرير ناعم على أجهزة آبل */
+  }
+
+  /* تخصيص شكل شريط التمرير (Scrollbar) ليناسب التصميم الداكن */
+  ::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: rgba(245, 158, 11, 0.5); /* Amber-500 شفاف */
+    border-radius: 10px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(245, 158, 11, 0.8);
+  }
 }
