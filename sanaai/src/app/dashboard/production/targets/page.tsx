@@ -23,7 +23,10 @@ type PerformanceRow = {
   entity_type: EntityType
   entity_id: string
   target_quantity: number
-  period: Period
+  // 🔹 الاسم لازم يطابق ما يرجعه /api/production/performance بالظبط
+  // (وهو أصلاً بينشر عمود target_period كما هو من الجدول) — استخدام
+  // اسم "period" هنا كان بيخلي PERIOD_LABELS[row.period] يرجع undefined.
+  target_period: Period
   actual_quantity: number
   achievement_percent: number
 }
@@ -185,9 +188,18 @@ export default function ProductionTargetsPage() {
 
     setSaving(true)
     try {
+      // 🔹 مهم: عمود الفترة في جدول production_targets اسمه target_period
+      // مش period — استخدام الاسم الخطأ هنا كان بيسبب خطأ PGRST204
+      // "Could not find the 'period' column of 'production_targets'".
+      const payload = {
+        entity_type: form.entity_type,
+        entity_id: form.entity_id,
+        target_quantity: form.target_quantity,
+        target_period: form.period,
+      }
       await apiFetch('/api/production/targets', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       })
       setForm((f) => ({ ...f, entity_id: '', target_quantity: 0 }))
       await reloadPerformance()
@@ -361,7 +373,8 @@ export default function ProductionTargetsPage() {
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    {row.actual_quantity} / {row.target_quantity} قطعة · {PERIOD_LABELS[row.period]}
+                    {row.actual_quantity} / {row.target_quantity} قطعة ·{' '}
+                    {PERIOD_LABELS[row.target_period]}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

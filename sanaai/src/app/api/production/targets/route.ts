@@ -15,9 +15,12 @@ export async function GET() {
     const user = await getCurrentUser()
     checkPermission(user, Permission.ProductionRead)
 
+    // 🔹 العمود الحقيقي في جدول production_targets اسمه target_period
+    // مش period — ده كان بيسبب PGRST204 "Could not find the 'period' column"
+    // لأن PostgREST بيرفض أي select لعمود مش موجود في الـ schema.
     const { data, error } = await supabaseAdmin
       .from('production_targets')
-      .select('id, entity_type, entity_id, target_quantity, period, effective_from')
+      .select('id, entity_type, entity_id, target_quantity, target_period, effective_from')
       .eq('tenant_id', user.tenantId)
       .is('effective_to', null)
       .order('entity_type', { ascending: true })
@@ -33,7 +36,10 @@ const createSchema = z.object({
   entity_type: z.enum(ENTITY_TYPES),
   entity_id: z.string().uuid(),
   target_quantity: z.number().nonnegative(),
-  period: z.enum(PERIODS),
+  // 🔹 اسم الحقل هنا لازم يطابق اسم عمود الجدول (target_period) عشان
+  // الفرونت إند يبعت نفس الاسم في الـ payload، وعشان نتجنب أي تحويل
+  // (mapping) وسط الطريق ممكن ينسى حد يحدّثه لو اتغيّر اسم العمود تاني.
+  target_period: z.enum(PERIODS),
 })
 
 // POST: إضافة/استبدال تارجت لمكنة أو موظف أو خط معيّن
@@ -66,7 +72,7 @@ export async function POST(request: NextRequest) {
         entity_type: validated.entity_type,
         entity_id: validated.entity_id,
         target_quantity: validated.target_quantity,
-        period: validated.period,
+        target_period: validated.target_period,
         created_by: user.id,
       })
       .select()

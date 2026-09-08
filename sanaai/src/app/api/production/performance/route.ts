@@ -4,20 +4,39 @@ import { Permission } from '@/lib/types'
 import { successResponse, handleError } from '@/lib/server/responses'
 
 type Period = 'daily' | 'weekly' | 'monthly'
+type EntityType = 'machine' | 'employee' | 'production_line'
 
+type TargetRow = {
+  id: string
+  entity_type: EntityType
+  entity_id: string
+  target_quantity: number
+  target_period: Period
+}
+
+type MachineRow = { id: string; line_id: string | null }
+type LogRow = { quantity_produced: number | null }
+
+// 🔹 كل الحسابات هنا بتستخدم UTC بشكل موحّد (getUTCDay/getUTCDate/Date.UTC)
+// عشان تتطابق مع .toISOString() اللي هي أصلاً UTC. الخلط بين توقيت محلي
+// (local) وتوقيت UTC كان بيسبب انزياح حدود اليوم/الأسبوع/الشهر بساعتين
+// أو تلاتة حسب توقيت السيرفر — وده بيأثر مباشرة على حساب actual_quantity
+// قرب منتصف الليل بتوقيت القاهرة.
 function periodStart(period: Period): string {
   const now = new Date()
   if (period === 'daily') {
     return now.toISOString().slice(0, 10)
   }
   if (period === 'weekly') {
-    const day = now.getDay() // 0 = الأحد
+    const day = now.getUTCDay() // 0 = الأحد
     const start = new Date(now)
-    start.setDate(now.getDate() - day)
+    start.setUTCDate(now.getUTCDate() - day)
     return start.toISOString().slice(0, 10)
   }
   // monthly
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    .toISOString()
+    .slice(0, 10)
 }
 
 // GET: أداء كل تارجت نشط — الكمية الفعلية من production_logs مقابل التارجت
@@ -32,6 +51,7 @@ export async function GET() {
       .select('id, entity_type, entity_id, target_quantity, target_period')
       .eq('tenant_id', caller.tenantId)
       .is('effective_to', null)
+      .returns<TargetRow[]>()
 
     if (targetsError) throw targetsError
     if (!targets || targets.length === 0) return successResponse([])
@@ -48,9 +68,10 @@ export async function GET() {
         .select('id, line_id')
         .eq('tenant_id', caller.tenantId)
         .in('line_id', lineIds)
+        .returns<MachineRow[]>()
 
       if (machinesError) throw machinesError
-      machinesByLine = (machines || []).reduce((acc: Record<string, string[]>, m: any) => {
+      machinesByLine = (machines || []).reduce<Record<string, string[]>>((acc, m) => {
         if (!m.line_id) return acc
         acc[m.line_id] = acc[m.line_id] || []
         acc[m.line_id].push(m.id)
@@ -60,7 +81,7 @@ export async function GET() {
 
     const results = await Promise.all(
       targets.map(async (target) => {
-        const startDate = periodStart(target.target_period as Period)
+        const startDate = periodStart(target.target_period)
 
         let query = supabaseAdmin
           .from('machine_activity_logs')
@@ -85,11 +106,11 @@ export async function GET() {
           query = query.in('machine_id', machineIds)
         }
 
-        const { data: logs, error: logsError } = await query
+        const { data: logs, error: logsError } = await query.returns<LogRow[]>()
         if (logsError) throw logsError
 
         const actual = (logs || []).reduce(
-          (sum, l: any) => sum + Number(l.quantity_produced || 0),
+          (sum, l) => sum + Number(l.quantity_produced || 0),
           0,
         )
         const percent =
