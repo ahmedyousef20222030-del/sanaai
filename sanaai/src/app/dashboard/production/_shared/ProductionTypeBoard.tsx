@@ -36,7 +36,7 @@ export interface OrderImage {
 export interface Order {
   id: string
   order_number: string
-  execution_type: string
+  execution_type: string | null
   status: OrderStatus
   quantity: number
   sector: string | null
@@ -77,7 +77,49 @@ const STATUS_COLUMNS: { key: OrderStatus; label: string; color: string }[] = [
 ]
 
 // ---------------------------------------------
+// منطق التقسيم: كل صنف بيتحدد نوع تنفيذه الفعلي
+// - لو الصنف نفسه محدد له execution_type → ده اللي بيتحسب
+// - لو مش محدد → بيرث نوع الأوردر، إلا لو الأوردر نفسه "مختلط"
+//   (لأن "مختلط" مش نوع تنفيذ حقيقي، فمينفعش صنف يرثه)
+// ---------------------------------------------
+
+function getItemEffectiveType(item: OrderItem, order: Order): string | null {
+  if (item.execution_type) return item.execution_type
+  if (order.execution_type && order.execution_type !== 'مختلط') return order.execution_type
+  return null
+}
+
+// بياخد الأوردر الكامل ويرجّع نسخة منه فيها بس الأصناف الخاصة بنوع
+// التنفيذ المطلوب — ده اللي بيخلي فاتورة "مختلط" واحدة تظهر في صفحة
+// التطريز بأصنافها التطريزية بس، وفي صفحة الطباعة بأصنافها الطباعية بس
+function getOrderSliceForType(order: Order, executionType: string): Order | null {
+  // أوردر من غير أصناف تفصيلية (نادرًا) → نعتمد على نوع الأوردر مباشرة
+  if (order.order_items.length === 0) {
+    return order.execution_type === executionType ? order : null
+  }
+
+  const matchingItems = order.order_items.filter(
+    (item) => getItemEffectiveType(item, order) === executionType
+  )
+
+  if (matchingItems.length === 0) return null
+
+  const matchingQuantity = matchingItems.reduce((sum, item) => sum + (item.quantity || 0), 0)
+
+  return {
+    ...order,
+    order_items: matchingItems,
+    // الكمية الظاهرة في رأس الكارت بقت خاصة بأصناف البورد ده بس،
+    // مش إجمالي الفاتورة كله (مهم في حالة الفواتير المختلطة)
+    quantity: matchingQuantity,
+  }
+}
+
+// ---------------------------------------------
 // Hook: جلب الأوردرات كاملة (مع العميل، الأصناف، الصور) + تحديث لحظي
+// بيجيب كل الأوردرات (من غير فلترة execution_type على مستوى الأوردر)
+// وبعدين بيقسّمها على مستوى الصنف، عشان الفواتير المختلطة أو اللي
+// execution_type بتاعها فاضي على مستوى الأوردر تتوزع صح
 // ---------------------------------------------
 
 function useOrdersByExecutionType(executionType: string) {
@@ -109,7 +151,6 @@ function useOrdersByExecutionType(executionType: string) {
         order_images ( id, image_url, sort_order )
       `
       )
-      .eq('execution_type', executionType)
       .is('deleted_at', null) // استبعاد الأوردرات المحذوفة (soft delete)
       .order('created_at', { ascending: false })
       .order('sort_order', { foreignTable: 'order_images', ascending: true })
@@ -118,7 +159,11 @@ function useOrdersByExecutionType(executionType: string) {
       setError(fetchError.message)
       setOrders([])
     } else {
-      setOrders((data as unknown as Order[]) ?? [])
+      const allOrders = (data as unknown as Order[]) ?? []
+      const slicedOrders = allOrders
+        .map((order) => getOrderSliceForType(order, executionType))
+        .filter((order): order is Order => order !== null)
+      setOrders(slicedOrders)
     }
 
     setIsLoading(false)
@@ -127,14 +172,11 @@ function useOrdersByExecutionType(executionType: string) {
   useEffect(() => {
     fetchOrders()
 
-    // تحديث لحظي على orders نفسها
+    // تحديث لحظي على orders نفسها — من غير فلترة execution_type
+    // عشان أي تعديل بيحول أوردر لـ"مختلط" أو يغيّر نوعه يترصد فورًا
     const ordersChannel = supabase
       .channel(`orders-${executionType}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders', filter: `execution_type=eq.${executionType}` },
-        () => fetchOrders()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders())
       .subscribe()
 
     // تحديث لحظي لو اتضاف/اتعدل صنف داخل أي أوردر
@@ -303,9 +345,26 @@ function OrderCard({ order }: { order: Order }) {
         border: '1px solid #eee',
       }}
     >
-      {/* رأس الكارت: رقم الأوردر + الكمية الإجمالية + القطاع */}
+      {/* رأس الكارت: رقم الأوردر + شارة "مختلط" لو الفاتورة مقسّمة + الكمية الخاصة بالبورد ده */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <strong style={{ fontSize: 15 }}>#{order.order_number}</strong>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <strong style={{ fontSize: 15 }}>#{order.order_number}</strong>
+          {order.execution_type === 'مختلط' && (
+            <span
+              title="الفاتورة دي فيها أصناف تطريز وطباعة مع بعض — الأصناف الظاهرة هنا خاصة بالبورد ده بس"
+              style={{
+                fontSize: 11,
+                background: '#ede9fe',
+                color: '#6d28d9',
+                padding: '2px 8px',
+                borderRadius: 20,
+                fontWeight: 700,
+              }}
+            >
+              🔀 فاتورة مختلطة
+            </span>
+          )}
+        </div>
         <span
           style={{
             color: '#111',
@@ -316,7 +375,7 @@ function OrderCard({ order }: { order: Order }) {
             fontWeight: 600,
           }}
         >
-          {order.quantity} قطعة إجمالي
+          {order.quantity} قطعة {order.execution_type === 'مختلط' ? 'في البورد ده' : 'إجمالي'}
         </span>
       </div>
 
