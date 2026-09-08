@@ -1,271 +1,261 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase' // عدّل المسار حسب مكان الـ client عندك
 
-type Props = {
-  executionType: 'تطريز' | 'طباعة'
+// ---------------------------------------------
+// Types
+// ---------------------------------------------
+
+export type OrderStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface Order {
+  id: string
+  order_number: string
+  client_name: string
+  execution_type: string
+  status: OrderStatus
+  quantity: number
+  due_date: string | null
+  created_at: string
+}
+
+interface ProductionTypeBoardProps {
+  executionType: string
   title: string
   emoji: string
 }
 
-// طلب كامل النوع واحد (execution_type = تطريز أو طباعة مباشرة)
-type WholeOrderRow = {
-  id: string
-  order_number: string
-  status: string
-  quantity: number | null
-  expected_delivery: string | null
-  execution_type: string | null
-  clients: { name: string } | null
-}
+// ---------------------------------------------
+// إعدادات أعمدة الـ Board (عدّل العناوين والألوان براحتك)
+// ---------------------------------------------
 
-// صنف منفرد جوه طلب "مختلط" (فيه أكتر من نوع تنفيذ داخل نفس الطلب)
-type MixedItemRow = {
-  id: string
-  name: string
-  size: string | null
-  color: string | null
-  quantity: number
-  execution_type: string | null
-  custom_detail: string | null
-  orders: {
-    id: string
-    order_number: string
-    status: string
-    expected_delivery: string | null
-    execution_type: string | null
-    clients: { name: string } | null
-  } | null
-}
+const STATUS_COLUMNS: { key: OrderStatus; label: string; color: string }[] = [
+  { key: 'pending', label: 'قيد الانتظار', color: '#f59e0b' },
+  { key: 'in_progress', label: 'جاري التنفيذ', color: '#3b82f6' },
+  { key: 'completed', label: 'مكتمل', color: '#22c55e' },
+]
 
-const ACTIVE_STATUSES_EXCLUDE = ['تم التسليم', 'مغلق']
+// ---------------------------------------------
+// Hook: جلب أوردرات نوع تنفيذ معين + تحديث لحظي (realtime)
+// ---------------------------------------------
 
-function statusColor(status: string) {
-  const map: Record<string, string> = {
-    'جديد': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-    'تحت الإنتاج': 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-    'فحص الجودة': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-    'جاهز للشحن': 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-    'تم التسليم': 'bg-green-500/20 text-green-300 border-green-500/30',
-    'مغلق': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-  }
-  return map[status] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'
-}
-
-function fmtDate(d: string | null) {
-  return d ? new Date(d).toLocaleDateString('ar-EG') : '—'
-}
-
-export default function ProductionTypeBoard({ executionType, title, emoji }: Props) {
-  const router = useRouter()
-  const [wholeOrders, setWholeOrders] = useState<WholeOrderRow[]>([])
-  const [mixedItems, setMixedItems] = useState<MixedItemRow[]>([])
-  const [loading, setLoading] = useState(true)
+function useOrdersByExecutionType(executionType: string) {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [showAll, setShowAll] = useState(false) // false = إخفاء المُسلَّم/المغلق
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchOrders = useCallback(async () => {
+    setIsLoading(true)
     setError(null)
-    try {
-      // 1) طلبات نوعها بالكامل نفس التصنيف المطلوب
-      const wholeQuery = supabase
-        .from('orders')
-        .select('id, order_number, status, quantity, expected_delivery, execution_type, clients(name)')
-        .eq('execution_type', executionType)
-        .is('deleted_at', null)
-        .order('expected_delivery', { ascending: true })
 
-      // 2) أصناف منفردة جوه طلبات "مختلط" بتخص النوع المطلوب فقط
-      const mixedQuery = supabase
-        .from('order_items')
-        .select(`
-          id, name, size, color, quantity, execution_type, custom_detail,
-          orders!inner(id, order_number, status, expected_delivery, execution_type, clients(name))
-        `)
-        .eq('execution_type', executionType)
-        .eq('orders.execution_type', 'مختلط')
+    const { data, error: fetchError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('execution_type', executionType)
+      .order('created_at', { ascending: false })
 
-      const [wholeRes, mixedRes] = await Promise.all([wholeQuery, mixedQuery])
-
-      if (wholeRes.error) throw wholeRes.error
-      if (mixedRes.error) throw mixedRes.error
-
-      setWholeOrders((wholeRes.data as any) || [])
-      setMixedItems((mixedRes.data as any) || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'فشل تحميل البيانات')
-    } finally {
-      setLoading(false)
+    if (fetchError) {
+      setError(fetchError.message)
+      setOrders([])
+    } else {
+      setOrders(data ?? [])
     }
+
+    setIsLoading(false)
   }, [executionType])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    fetchOrders()
 
-  const term = search.trim().toLowerCase()
+    // تحديث لحظي: أي إضافة/تعديل/حذف في جدول orders بيتحدث في الـ board تلقائي
+    const channel = supabase
+      .channel(`orders-${executionType}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `execution_type=eq.${executionType}`,
+        },
+        () => {
+          fetchOrders()
+        }
+      )
+      .subscribe()
 
-  const filteredWhole = wholeOrders.filter(o => {
-    if (!showAll && ACTIVE_STATUSES_EXCLUDE.includes(o.status)) return false
-    if (!term) return true
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [executionType, fetchOrders])
+
+  return { orders, isLoading, error, refetch: fetchOrders }
+}
+
+// ---------------------------------------------
+// Component: بطاقة أوردر واحدة
+// ---------------------------------------------
+
+function OrderCard({ order }: { order: Order }) {
+  return (
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 10,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+        border: '1px solid #eee',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <strong>#{order.order_number}</strong>
+        <span style={{ color: '#666', fontSize: 13 }}>{order.quantity} قطعة</span>
+      </div>
+      <div style={{ fontSize: 14, marginBottom: 4 }}>{order.client_name}</div>
+      {order.due_date && (
+        <div style={{ fontSize: 12, color: '#999' }}>
+          تسليم: {new Date(order.due_date).toLocaleDateString('ar-EG')}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------
+// Component: العمود (حالة واحدة)
+// ---------------------------------------------
+
+function StatusColumn({
+  label,
+  color,
+  orders,
+}: {
+  label: string
+  color: string
+  orders: Order[]
+}) {
+  return (
+    <div style={{ flex: 1, minWidth: 260 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 12,
+          fontWeight: 700,
+        }}
+      >
+        <span
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: color,
+            display: 'inline-block',
+          }}
+        />
+        <span>{label}</span>
+        <span style={{ color: '#999', fontWeight: 400 }}>({orders.length})</span>
+      </div>
+
+      <div>
+        {orders.length === 0 ? (
+          <div style={{ color: '#bbb', fontSize: 13, padding: '20px 0', textAlign: 'center' }}>
+            لا يوجد أوردرات
+          </div>
+        ) : (
+          orders.map((order) => <OrderCard key={order.id} order={order} />)
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------
+// Component رئيسي: ProductionTypeBoard
+// ---------------------------------------------
+
+export default function ProductionTypeBoard({
+  executionType,
+  title,
+  emoji,
+}: ProductionTypeBoardProps) {
+  const { orders, isLoading, error, refetch } = useOrdersByExecutionType(executionType)
+
+  const grouped = useMemo(() => {
+    const map: Record<OrderStatus, Order[]> = {
+      pending: [],
+      in_progress: [],
+      completed: [],
+    }
+    for (const order of orders) {
+      if (map[order.status]) {
+        map[order.status].push(order)
+      }
+    }
+    return map
+  }, [orders])
+
+  if (isLoading) {
     return (
-      o.order_number?.toLowerCase().includes(term) ||
-      o.clients?.name?.toLowerCase().includes(term)
+      <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>
+        جاري تحميل الأوردرات...
+      </div>
     )
-  })
+  }
 
-  const filteredMixed = mixedItems.filter(item => {
-    const parentStatus = item.orders?.status || ''
-    if (!showAll && ACTIVE_STATUSES_EXCLUDE.includes(parentStatus)) return false
-    if (!term) return true
+  if (error) {
     return (
-      item.orders?.order_number?.toLowerCase().includes(term) ||
-      item.orders?.clients?.name?.toLowerCase().includes(term) ||
-      item.name?.toLowerCase().includes(term)
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <p style={{ color: '#e11d48', marginBottom: 12 }}>حصل خطأ: {error}</p>
+        <button
+          onClick={refetch}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 8,
+            border: 'none',
+            background: '#111',
+            color: '#fff',
+            cursor: 'pointer',
+          }}
+        >
+          إعادة المحاولة
+        </button>
+      </div>
     )
-  })
-
-  const totalCount = filteredWhole.length + filteredMixed.length
+  }
 
   return (
-    <div className="p-6 min-h-screen" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white">{emoji} {title}</h1>
-          <p className="text-sm text-gray-500 mt-1">{totalCount} عنصر يحتاج {executionType}</p>
-        </div>
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="px-4 py-2 text-xs border border-amber-600/30 text-amber-400 rounded-lg hover:bg-amber-500/10 transition disabled:opacity-50"
+    <div dir="rtl" style={{ padding: 20, fontFamily: 'inherit' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <span style={{ fontSize: 28 }}>{emoji}</span>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{title}</h1>
+        <span
+          style={{
+            marginRight: 'auto',
+            color: '#666',
+            fontSize: 14,
+            background: '#f3f4f6',
+            padding: '4px 10px',
+            borderRadius: 20,
+          }}
         >
-          {loading ? '⏳ تحديث...' : '🔄 تحديث'}
-        </button>
+          إجمالي: {orders.length}
+        </span>
       </div>
 
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-sm text-red-400">
-          ⚠️ {error}
-        </div>
-      )}
-
-      <div className="flex gap-3 flex-wrap mb-6">
-        <input
-          type="text"
-          placeholder="🔍 ابحث برقم الطلب أو اسم العميل..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="flex-1 min-w-[220px] bg-[#111927] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50"
-        />
-        <button
-          onClick={() => setShowAll(v => !v)}
-          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition border ${
-            showAll
-              ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-              : 'text-gray-500 border-white/10 hover:border-white/20'
-          }`}
-        >
-          {showAll ? '✅ عرض الكل (بما فيه المُسلَّم)' : '⚡ عرض النشط فقط'}
-        </button>
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        {STATUS_COLUMNS.map((col) => (
+          <StatusColumn
+            key={col.key}
+            label={col.label}
+            color={col.color}
+            orders={grouped[col.key]}
+          />
+        ))}
       </div>
-
-      {loading ? (
-        <div className="text-center py-16 text-gray-600">جاري التحميل...</div>
-      ) : totalCount === 0 ? (
-        <div className="text-center py-16 bg-[#111927] rounded-3xl border border-white/5 text-gray-600">
-          <div className="text-4xl mb-3">{emoji}</div>
-          <p>لا توجد أوردرات {executionType} حالياً</p>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* الطلبات كاملة النوع */}
-          {filteredWhole.length > 0 && (
-            <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-hidden">
-              <div className="px-5 py-3 border-b border-white/5 text-xs font-bold text-amber-400">
-                طلبات {executionType} بالكامل ({filteredWhole.length})
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-white/[0.02]">
-                    <tr className="text-right">
-                      {['رقم الطلب', 'العميل', 'الكمية', 'الحالة', 'التسليم المتوقع'].map(h => (
-                        <th key={h} className="px-4 py-3 text-xs text-gray-500 font-medium">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredWhole.map(o => (
-                      <tr
-                        key={o.id}
-                        onClick={() => router.push(`/dashboard/orders/${o.id}`)}
-                        className="border-b border-white/5 hover:bg-white/5 transition cursor-pointer"
-                      >
-                        <td className="px-4 py-3 font-mono text-amber-400 text-xs font-bold">{o.order_number}</td>
-                        <td className="px-4 py-3 text-xs text-white">{o.clients?.name || '—'}</td>
-                        <td className="px-4 py-3 text-xs text-gray-400">{o.quantity ?? '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor(o.status)}`}>{o.status}</span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-500">{fmtDate(o.expected_delivery)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* أصناف منفردة جوه طلبات مختلطة */}
-          {filteredMixed.length > 0 && (
-            <div className="bg-[#111927] rounded-2xl border border-white/5 overflow-hidden">
-              <div className="px-5 py-3 border-b border-white/5 text-xs font-bold text-cyan-400">
-                أصناف {executionType} داخل طلبات مختلطة ({filteredMixed.length})
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-white/[0.02]">
-                    <tr className="text-right">
-                      {['رقم الطلب', 'العميل', 'الصنف', 'المقاس/اللون', 'الكمية', 'الحالة', 'التسليم المتوقع'].map(h => (
-                        <th key={h} className="px-4 py-3 text-xs text-gray-500 font-medium">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredMixed.map(item => (
-                      <tr
-                        key={item.id}
-                        onClick={() => item.orders?.id && router.push(`/dashboard/orders/${item.orders.id}`)}
-                        className="border-b border-white/5 hover:bg-white/5 transition cursor-pointer"
-                      >
-                        <td className="px-4 py-3 font-mono text-amber-400 text-xs font-bold">{item.orders?.order_number}</td>
-                        <td className="px-4 py-3 text-xs text-white">{item.orders?.clients?.name || '—'}</td>
-                        <td className="px-4 py-3 text-xs text-white">
-                          {item.name}
-                          {item.custom_detail && <span className="block text-[10px] text-gray-500">{item.custom_detail}</span>}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-400">
-                          {[item.size, item.color].filter(Boolean).join(' / ') || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-400">{item.quantity}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor(item.orders?.status || '')}`}>
-                            {item.orders?.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-500">{fmtDate(item.orders?.expected_delivery || null)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
