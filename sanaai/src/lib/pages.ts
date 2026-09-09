@@ -1,138 +1,214 @@
-// ── تعريف موحّد لكل صفحات لوحة التحكم ──
-// أي صفحة جديدة تضيفها للنظام سجّلها هنا عشان: (1) تظهر في شاشة الصلاحيات كخيار،
-// و(2) تتحمي تلقائيًا في layout.tsx. الصفحة اللي معندهاش تسجيل هنا بتفضل ظاهرة للكل
-// (زي لوحة التحكم الرئيسية) إلا لو معمول لها استثناء يدوي زي "الإعدادات".
+// ============================================================================
+// نظام "صَنَاعي" (Sanaai ERP) — إدارة الصفحات والصلاحيات
+// المسار: src/lib/pages.ts
+// ============================================================================
 
-export type PageKey =
-  | '/dashboard/orders'
-  | '/dashboard/clients'
-  | '/dashboard/pipeline'
-  | '/dashboard/production'
-  | '/dashboard/production/targets'
-  | '/dashboard/production/embroidery'
-  | '/dashboard/production/printing'
-  | '/dashboard/quality'
-  | '/dashboard/inventory'
-  | '/dashboard/showroom'
-  | '/dashboard/restock-decisions'
-  | '/dashboard/suppliers'
-  | '/dashboard/procurement'
-  | '/dashboard/shipping'
-  | '/dashboard/branches'
-  | '/dashboard/invoices'
-  | '/dashboard/employees'
-  | '/dashboard/complaints'
-  | '/dashboard/permissions'
-  | '/dashboard/changelog'
+export type PagePermissions = {
+  orders?: boolean
+  invoices?: boolean
+  clients?: boolean
+  complaints?: boolean
+  production?: boolean
+  machines?: boolean
+  quality?: boolean
+  targets?: boolean
+  materials?: boolean       // 🧵 صلاحية مخزن الخامات
+  inventory?: boolean
+  suppliers?: boolean
+  shipping?: boolean
+  showroom?: boolean
+  employees?: boolean
+  branches?: boolean
+  changelog?: boolean
+  [key: string]: boolean | undefined
+}
 
-export type PageDef = {
-  key: PageKey
+export type PageItem = {
+  key: string
   label: string
   icon: string
   section: string
 }
 
-// كل الصفحات القابلة لمنح/سحب صلاحية عرضها لكل مستخدم على حدة
-// (الترتيب هنا = ترتيب ظهور الأقسام والعناصر في القائمة الجانبية)
-export const PAGE_LIST: PageDef[] = [
-  { key: '/dashboard/orders',            label: 'الطلبات',           icon: '📦', section: 'العملاء والطلبات' },
-  { key: '/dashboard/invoices',          label: 'الفواتير',          icon: '🧾', section: 'العملاء والطلبات' },
-  { key: '/dashboard/clients',           label: 'العملاء',           icon: '🏢', section: 'العملاء والطلبات' },
-  { key: '/dashboard/complaints',        label: 'الشكاوى',           icon: '📢', section: 'العملاء والطلبات' },
+export type ExtraNavLink = {
+  label: string
+  icon: string
+  path: string
+  after: string
+}
 
-  { key: '/dashboard/pipeline',          label: 'تتبع مراحل الطلبات', icon: '🔄', section: 'الإنتاج' },
-  { key: '/dashboard/production',        label: ' المكن وخطوط الإنتاج', icon: '🏭', section: 'الإنتاج' },
-  { key: '/dashboard/quality',           label: 'الجودة',            icon: '🔍', section: 'الإنتاج' },
-  { key: '/dashboard/production/targets', label: 'تارجت الإنتاج',   icon: '🎯', section: 'الإنتاج' },
-  { key: '/dashboard/production/embroidery', label: 'تجميع التطريز', icon: '🧵', section: 'الإنتاج' },
-  { key: '/dashboard/production/printing',   label: 'تجميع الطباعة', icon: '🖨️', section: 'الإنتاج' },
+export const HOME_PATH = '/dashboard'
+export const SETTINGS_PATH = '/dashboard/settings'
+export const MY_PERFORMANCE_PATH = '/dashboard/my-performance'
 
-  { key: '/dashboard/inventory',         label: 'المخزون',           icon: '📦', section: 'المخازن والتوريد' },
-  { key: '/dashboard/showroom',          label: 'المعروض على الرف',  icon: '🏪', section: 'المخازن والتوريد' },
-  { key: '/dashboard/restock-decisions', label: 'قرارات التوريد',    icon: '⚖️', section: 'المخازن والتوريد' },
-  { key: '/dashboard/suppliers',         label: 'الموردين',          icon: '🤝', section: 'المخازن والتوريد' },
-  { key: '/dashboard/procurement',       label: 'المشتريات',         icon: '🛒', section: 'المخازن والتوريد' },
+// ── مصفوفة الصفحات الرئيسية للوحة التحكم ──
+export const PAGE_LIST: PageItem[] = [
+  // ── العملاء والطلبات ──
+  {
+    key: '/dashboard/orders',
+    label: 'الطلبات',
+    icon: '📦',
+    section: 'العملاء والطلبات',
+  },
+  {
+    key: '/dashboard/invoices',
+    label: 'الفواتير',
+    icon: '🧾',
+    section: 'العملاء والطلبات',
+  },
+  {
+    key: '/dashboard/clients',
+    label: 'العملاء',
+    icon: '👥',
+    section: 'العملاء والطلبات',
+  },
+  {
+    key: '/dashboard/complaints',
+    label: 'الشكاوى',
+    icon: '📢',
+    section: 'العملاء والطلبات',
+  },
 
-  { key: '/dashboard/shipping',          label: 'الشحن',             icon: '🚚', section: 'الشحن والفروع' },
-  { key: '/dashboard/branches',          label: 'الفروع والمعارض',   icon: '🏬', section: 'الشحن والفروع' },
+  // ── الإنتاج والتصنيع ──
+  {
+    key: '/dashboard/pipeline',
+    label: 'تتبع مراحل الطلبات',
+    icon: '🔄',
+    section: 'الإنتاج',
+  },
+  {
+    key: '/dashboard/production',
+    label: 'المكن وخطوط الإنتاج',
+    icon: '🏭',
+    section: 'الإنتاج',
+  },
+  {
+    key: '/dashboard/inventory/materials',
+    label: 'مخزن الخامات',
+    icon: '🧵',
+    section: 'الإنتاج',
+  },
+  {
+    key: '/dashboard/quality',
+    label: 'الجودة',
+    icon: '🔍',
+    section: 'الإنتاج',
+  },
+  {
+    key: '/dashboard/production-targets',
+    label: 'تارجت الإنتاج',
+    icon: '🎯',
+    section: 'الإنتاج',
+  },
 
-  { key: '/dashboard/employees',         label: 'الموظفين',          icon: '👥', section: 'الإدارة' },
-  { key: '/dashboard/permissions',       label: 'الصلاحيات',         icon: '🔑', section: 'الإدارة' },
-  { key: '/dashboard/changelog',         label: 'سجل التغييرات',     icon: '📋', section: 'الإدارة' },
+  // ── المخازن والتوريد ──
+  {
+    key: '/dashboard/inventory',
+    label: 'المخزون العام',
+    icon: '📦',
+    section: 'المخازن والتوريد',
+  },
+  {
+    key: '/dashboard/suppliers',
+    label: 'الموردين',
+    icon: '🚚',
+    section: 'المخازن والتوريد',
+  },
+  {
+    key: '/dashboard/restock-decisions',
+    label: 'قرارات التوريد',
+    icon: '📋',
+    section: 'المخازن والتوريد',
+  },
+
+  // ── المبيعات والشحن ──
+  {
+    key: '/dashboard/shipping',
+    label: 'الشحن والتسليم',
+    icon: '🚛',
+    section: 'المبيعات والشحن',
+  },
+  {
+    key: '/dashboard/showroom',
+    label: 'معرض المنتجات',
+    icon: '🏬',
+    section: 'المبيعات والشحن',
+  },
+
+  // ── الموارد البشرية والفروع ──
+  {
+    key: '/dashboard/employees',
+    label: 'الموظفين',
+    icon: '👔',
+    section: 'الموارد البشرية',
+  },
+  {
+    key: '/dashboard/branches',
+    label: 'الفروع',
+    icon: '🏢',
+    section: 'الموارد البشرية',
+  },
+  {
+    key: '/dashboard/changelog',
+    label: 'سجل التحديثات',
+    icon: '📝',
+    section: 'الموارد البشرية',
+  },
 ]
 
-// صفحات خاصة خارج نظام page_permissions
-export const HOME_PATH = '/dashboard'               // ظاهرة للكل دايمًا، مش قابلة للسحب
-export const SETTINGS_PATH = '/dashboard/settings'  // للـ owner فقط دايمًا، مش قابلة للمنح لغيره
-export const MY_PERFORMANCE_PATH = '/dashboard/my-performance'  // ظاهرة للكل، بلا صلاحية
+// ── الروابط الإضافية المتفرعة ──
+export const EXTRA_NAV_LINKS: ExtraNavLink[] = []
 
-// روابط إضافية بتتبع نفس صلاحية صفحة أساسية (مش صفحة منفصلة بالمنطق، بس مسار مختلف)
-// ملاحظة: "تجميع التطريز" و"تجميع الطباعة" اتنقلوا لصفحات مستقلة كاملة في PAGE_LIST
-// فوق (بصلاحية خاصة بيهم)، فمعادش لهم داعي هنا.
-export const EXTRA_NAV_LINKS: { after: PageKey; label: string; icon: string; path: string }[] = []
-
-// ═══════════════════════════════════════════════════════════════
-// مستويات الصلاحية لكل صفحة على حدة (بدل صلاحية "عرض" بوليانية واحدة).
-// غياب الصفحة من الخريطة = ممنوع الدخول لها أصلاً.
-//   view        → 👁️ قراءة فقط (يشوف الصفحة، مفيش أفعال تعديل/حذف)
-//   edit        → ✏️ يقدر يضيف/يعدّل جوه الصفحة
-//   edit_delete → 🗑️ يقدر يضيف/يعدّل/يحذف جوه الصفحة
-//
-// ملاحظة مهمة: المستوى ده بيتحكم في عرض/إخفاء الصفحة والأزرار في الواجهة بس.
-// صلاحيات الأفعال الحساسة على مستوى الـ API (زي can_edit_production،
-// can_edit_orders...) لسه منفصلة تماماً وبتتفحص على السيرفر في src/lib/server/auth.ts
-// - محدش يلمسها لحد ما نراجعها في مرحلة منفصلة.
-// ═══════════════════════════════════════════════════════════════
-export type PermissionLevel = 'view' | 'edit' | 'edit_delete'
-
-export type PagePermissions = Partial<Record<PageKey, PermissionLevel>>
-
-export const PERMISSION_LEVEL_ORDER: PermissionLevel[] = ['view', 'edit', 'edit_delete']
-
-export const PERMISSION_LEVEL_LABELS: Record<PermissionLevel, string> = {
-  view: '👁️ قراءة فقط',
-  edit: '✏️ تعديل',
-  edit_delete: '🗑️ تعديل وحذف',
+// ── خريطة ربط المسارات بمفاتيح الصلاحيات ──
+const PATH_TO_PERMISSION_KEY: Record<string, keyof PagePermissions> = {
+  '/dashboard/orders': 'orders',
+  '/dashboard/invoices': 'invoices',
+  '/dashboard/clients': 'clients',
+  '/dashboard/complaints': 'complaints',
+  '/dashboard/pipeline': 'production',
+  '/dashboard/production': 'machines',
+  '/dashboard/inventory/materials': 'materials',
+  '/dashboard/quality': 'quality',
+  '/dashboard/production-targets': 'targets',
+  '/dashboard/inventory': 'inventory',
+  '/dashboard/suppliers': 'suppliers',
+  '/dashboard/restock-decisions': 'inventory',
+  '/dashboard/shipping': 'shipping',
+  '/dashboard/showroom': 'showroom',
+  '/dashboard/employees': 'employees',
+  '/dashboard/branches': 'branches',
+  '/dashboard/changelog': 'changelog',
 }
 
-// هل المستوى الممنوح يغطي على الأقل الحد الأدنى المطلوب؟
-export function levelAtLeast(level: PermissionLevel | null | undefined, min: PermissionLevel): boolean {
-  if (!level) return false
-  return PERMISSION_LEVEL_ORDER.indexOf(level) >= PERMISSION_LEVEL_ORDER.indexOf(min)
-}
-
-// هل المستخدم يقدر يشوف الصفحة دي؟ (owner يشوف كل حاجة دايمًا بأعلى صلاحية)
+// ── التحقق من إمكانية وصول المستخدم للصفحة ──
 export function canAccessPageKey(
-  pageKey: PageKey,
+  pathOrKey: string,
   isOwner: boolean,
-  pagePermissions: PagePermissions | null | undefined
+  permissions: PagePermissions | null
 ): boolean {
   if (isOwner) return true
-  return !!pagePermissions?.[pageKey]
+  if (!permissions) return false
+
+  const permKey = PATH_TO_PERMISSION_KEY[pathOrKey] || (pathOrKey as keyof PagePermissions)
+  return Boolean(permissions[permKey])
 }
 
-// إرجاع مستوى صلاحية المستخدم الفعلي على صفحة معيّنة (owner = أعلى صلاحية دايمًا)
-export function getPageLevel(
-  pageKey: PageKey,
-  isOwner: boolean,
-  pagePermissions: PagePermissions | null | undefined
-): PermissionLevel | null {
-  if (isOwner) return 'edit_delete'
-  return pagePermissions?.[pageKey] ?? null
-}
+// ── مطابقة مسار الـ URL الحالي مع المسار المسجل في النظام ──
+export function matchPageKeyForPath(pathname: string): string | null {
+  // مطابقة مسار الخامات واعتماد خامات الطلب
+  if (pathname.startsWith('/dashboard/inventory/materials')) {
+    return '/dashboard/inventory/materials'
+  }
+  if (pathname.startsWith('/dashboard/orders/') && pathname.includes('/materials')) {
+    return '/dashboard/inventory/materials'
+  }
 
-// تحديد أنهي PageKey مسؤول عن مسار معيّن (بيغطي الصفحات الفرعية زي orders/[id])
-//
-// ملاحظة مهمة: لازم ناخد أطول/أدق تطابق، مش أول تطابق بالترتيب في PAGE_LIST.
-// لو دورنا على أول تطابق بس، مسار زي '/dashboard/production/targets' كان
-// هيتلقط غلط تحت '/dashboard/production' (لأنها أسبق في المصفوفة وبتعمل
-// startsWith('/dashboard/production/') بنجاح)، مع إن فيه تسجيل مخصّص وأدق
-// ليها. الحل: نختار من بين كل الصفحات المتطابقة أطول key (أكتر تحديدًا).
-export function matchPageKeyForPath(pathname: string): PageKey | null {
-  const matches = PAGE_LIST.filter(p => pathname === p.key || pathname.startsWith(p.key + '/'))
-  if (matches.length === 0) return null
-  const best = matches.reduce((longest, current) =>
-    current.key.length > longest.key.length ? current : longest
-  )
-  return best.key
+  // مطابقة بقية المسارات الفرعية
+  for (const page of PAGE_LIST) {
+    if (pathname === page.key || pathname.startsWith(page.key + '/')) {
+      return page.key
+    }
+  }
+
+  return null
 }
