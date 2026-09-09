@@ -3,25 +3,55 @@
 // المسار: src/lib/pages.ts
 // ============================================================================
 
-export type PagePermissions = {
-  orders?: boolean
-  invoices?: boolean
-  clients?: boolean
-  complaints?: boolean
-  production?: boolean
-  machines?: boolean
-  quality?: boolean
-  targets?: boolean
-  materials?: boolean       // 🧵 صلاحية مخزن الخامات
-  inventory?: boolean
-  suppliers?: boolean
-  shipping?: boolean
-  showroom?: boolean
-  employees?: boolean
-  branches?: boolean
-  changelog?: boolean
-  [key: string]: boolean | undefined
+export type PermissionLevel = 'none' | 'view' | 'edit' | 'admin'
+
+export const PERMISSION_LEVEL_ORDER: PermissionLevel[] = ['none', 'view', 'edit', 'admin']
+
+export const PERMISSION_LEVEL_LABELS: Record<PermissionLevel, string> = {
+  none: 'محظور',
+  view: 'مشاهدة فقط',
+  edit: 'تعديل وعمليات',
+  admin: 'صلاحية كاملة',
 }
+
+export type PagePermissions = {
+  orders?: boolean | PermissionLevel
+  invoices?: boolean | PermissionLevel
+  clients?: boolean | PermissionLevel
+  complaints?: boolean | PermissionLevel
+  production?: boolean | PermissionLevel
+  machines?: boolean | PermissionLevel
+  quality?: boolean | PermissionLevel
+  targets?: boolean | PermissionLevel
+  materials?: boolean | PermissionLevel // 🧵 صلاحية مخزن الخامات
+  inventory?: boolean | PermissionLevel
+  suppliers?: boolean | PermissionLevel
+  shipping?: boolean | PermissionLevel
+  showroom?: boolean | PermissionLevel
+  employees?: boolean | PermissionLevel
+  branches?: boolean | PermissionLevel
+  changelog?: boolean | PermissionLevel
+  [key: string]: boolean | PermissionLevel | undefined
+}
+
+export type PageKey =
+  | '/dashboard/orders'
+  | '/dashboard/invoices'
+  | '/dashboard/clients'
+  | '/dashboard/complaints'
+  | '/dashboard/pipeline'
+  | '/dashboard/production'
+  | '/dashboard/inventory/materials'
+  | '/dashboard/quality'
+  | '/dashboard/production-targets'
+  | '/dashboard/inventory'
+  | '/dashboard/suppliers'
+  | '/dashboard/restock-decisions'
+  | '/dashboard/shipping'
+  | '/dashboard/showroom'
+  | '/dashboard/employees'
+  | '/dashboard/branches'
+  | '/dashboard/changelog'
 
 export type PageItem = {
   key: string
@@ -190,12 +220,16 @@ export function canAccessPageKey(
   if (!permissions) return false
 
   const permKey = PATH_TO_PERMISSION_KEY[pathOrKey] || (pathOrKey as keyof PagePermissions)
-  return Boolean(permissions[permKey])
+  const val = permissions[permKey]
+
+  if (typeof val === 'boolean') return val
+  if (typeof val === 'string') return val !== 'none'
+
+  return false
 }
 
 // ── مطابقة مسار الـ URL الحالي مع المسار المسجل في النظام ──
 export function matchPageKeyForPath(pathname: string): string | null {
-  // مطابقة مسار الخامات واعتماد خامات الطلب
   if (pathname.startsWith('/dashboard/inventory/materials')) {
     return '/dashboard/inventory/materials'
   }
@@ -203,7 +237,6 @@ export function matchPageKeyForPath(pathname: string): string | null {
     return '/dashboard/inventory/materials'
   }
 
-  // مطابقة بقية المسارات الفرعية
   for (const page of PAGE_LIST) {
     if (pathname === page.key || pathname.startsWith(page.key + '/')) {
       return page.key
