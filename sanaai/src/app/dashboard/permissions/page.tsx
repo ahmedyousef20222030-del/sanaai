@@ -1,7 +1,9 @@
 'use client'
+
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { PAGE_LIST, PagePermissions } from '@/lib/pages'
+import { Loader2, AlertTriangle, CheckCircle2, X, Plus, Search, Trash2 } from 'lucide-react'
 
 // ── تعريف الأدوار (متطابقة مع users_role_check في قاعدة البيانات) ──
 const roles: Record<string, string> = {
@@ -109,11 +111,22 @@ type ActivityLogEntry = {
 
 async function getMyTenantId(): Promise<string> {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) throw new Error('تعذر التحقق من هوية المستخدم، برجاء تسجيل الدخول مرة أخرى')
+  if (authError || !user) {
+    throw new Error('تعذر التحقق من هوية المستخدم، برجاء تسجيل الدخول مرة أخرى')
+  }
 
-  const { data: me, error: meError } = await supabase.from('users').select('tenant_id').eq('id', user.id).single()
-  if (meError) throw new Error(`تعذر تحديد هوية الشركة: ${meError.message}`)
-  if (!me?.tenant_id) throw new Error('تعذر تحديد هوية الشركة: لا يوجد tenant_id مرتبط بهذا المستخدم')
+  const { data: me, error: meError } = await supabase
+    .from('users')
+    .select('tenant_id')
+    .eq('id', user.id)
+    .single()
+
+  if (meError) {
+    throw new Error(`تعذر تحديد هوية الشركة: ${meError.message}`)
+  }
+  if (!me?.tenant_id) {
+    throw new Error('تعذر تحديد هوية الشركة: لا يوجد tenant_id مرتبط بهذا المستخدم')
+  }
 
   return me.tenant_id
 }
@@ -134,7 +147,9 @@ async function logUserActivity(action: string, entityLabel: string, oldValue: an
       old_value: oldValue,
       new_value: newValue,
     })
-  } catch {}
+  } catch {
+    // تسجيل النشاط عملية ثانوية؛ فشلها لا يوقف العملية الأساسية
+  }
 }
 
 export default function PermissionsPage() {
@@ -147,7 +162,6 @@ export default function PermissionsPage() {
   const [appUsers, setAppUsers] = useState<AppUser[]>([])
   const [loadingUsers, setLoadingUsers] = useState(true)
   const [savingRole, setSavingRole] = useState<string | null>(null)
-  const [rolesError, setRolesError] = useState<string | null>(null)
   const [userSearch, setUserSearch] = useState('')
   const [userRoleFilter, setUserRoleFilter] = useState('all')
 
@@ -164,6 +178,14 @@ export default function PermissionsPage() {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name: '', phone: '', role: 'production', salary: 0 })
+
+  // ── رسائل النظام (بديل alert) ──
+  const [banner, setBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  function showMessage(type: 'success' | 'error', message: string) {
+    setBanner({ type, message })
+    setTimeout(() => setBanner(null), 5000)
+  }
 
   useEffect(() => {
     loadMe()
@@ -195,7 +217,6 @@ export default function PermissionsPage() {
 
   async function loadUsers() {
     setLoadingUsers(true)
-    setRolesError(null)
     try {
       const { data, error } = await supabase
         .from('users')
@@ -204,7 +225,7 @@ export default function PermissionsPage() {
       if (error) throw error
       setAppUsers(data || [])
     } catch (err: any) {
-      setRolesError(err.message || 'حدث خطأ أثناء تحميل المستخدمين')
+      showMessage('error', err.message || 'حدث خطأ أثناء تحميل المستخدمين')
     } finally {
       setLoadingUsers(false)
     }
@@ -217,6 +238,7 @@ export default function PermissionsPage() {
     return matchSearch && matchRole
   })
 
+  // 🔹 دوال الربط الذكي
   async function linkEmployeeToUser(employeeId: string, user: AppUser) {
     if (!isOwner || !employeeId) return
     setSavingRole(user.id)
@@ -225,7 +247,12 @@ export default function PermissionsPage() {
       if (error) throw error
       setEmployees(prev => prev.map(e => e.id === employeeId ? { ...e, user_id: user.id } : e))
       logUserActivity('ربط إداري', user.full_name, null, `تم الربط مع موظف ID: ${employeeId}`)
-    } catch (err: any) { alert('تعذر الربط: ' + err.message) } finally { setSavingRole(null) }
+      showMessage('success', 'تم ربط الموظف بالحساب بنجاح')
+    } catch (err: any) {
+      showMessage('error', 'تعذر الربط: ' + err.message)
+    } finally { 
+      setSavingRole(null) 
+    }
   }
 
   async function unlinkEmployeeFromUser(employeeId: string, user: AppUser) {
@@ -236,7 +263,12 @@ export default function PermissionsPage() {
       if (error) throw error
       setEmployees(prev => prev.map(e => e.id === employeeId ? { ...e, user_id: null } : e))
       logUserActivity('فك ربط إداري', user.full_name, null, 'تم فصل الربط')
-    } catch (err: any) { alert('تعذر الفصل: ' + err.message) } finally { setSavingRole(null) }
+      showMessage('success', 'تم فك ارتباط الموظف بنجاح')
+    } catch (err: any) {
+      showMessage('error', 'تعذر الفصل: ' + err.message)
+    } finally { 
+      setSavingRole(null) 
+    }
   }
 
   async function toggleActive(user: AppUser) {
@@ -248,8 +280,9 @@ export default function PermissionsPage() {
       if (error) throw error
       setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_active: nextValue } : u))
       logUserActivity(nextValue ? 'تفعيل حساب' : 'تعطيل حساب', user.full_name, { is_active: user.is_active }, { is_active: nextValue }).then(loadActivityLog)
+      showMessage('success', nextValue ? 'تم تفعيل الحساب' : 'تم تعطيل الحساب')
     } catch (err: any) {
-      alert('تعذر تغيير حالة الحساب: ' + err.message)
+      showMessage('error', 'تعذر تغيير حالة الحساب: ' + err.message)
     } finally {
       setSavingRole(null)
     }
@@ -282,8 +315,9 @@ export default function PermissionsPage() {
       if (error) throw error
       setAppUsers(prev => prev.map(u => u.id === id ? { ...u, role } : u))
       if (prevUser) logUserActivity('تغيير الدور', prevUser.full_name, { role: prevUser.role }, { role }).then(loadActivityLog)
+      showMessage('success', 'تم تغيير دور المستخدم بنجاح')
     } catch (err: any) {
-      alert('تعذر تغيير الدور: ' + err.message + '\nملحوظة: تغيير الأدوار مسموح به فقط لصاحب الحساب (owner).')
+      showMessage('error', 'تعذر تغيير الدور: ' + err.message)
     } finally {
       setSavingRole(null)
     }
@@ -299,18 +333,23 @@ export default function PermissionsPage() {
       setAppUsers(prev => prev.map(u => u.id === id ? { ...u, [key]: value } : u))
       if (prevUser) logUserActivity('تغيير صلاحية', prevUser.full_name, { [key]: prevUser[key] }, { [key]: value }).then(loadActivityLog)
     } catch (err: any) {
-      alert('تعذر تغيير الصلاحية: ' + err.message)
+      showMessage('error', 'تعذر تغيير الصلاحية: ' + err.message)
     } finally {
       setSavingRole(null)
     }
   }
 
+  // 🔹 تحديث صلاحية الصفحة لتعتمد على boolean
   async function updatePagePermission(user: AppUser, pageKey: string, hasAccess: boolean) {
     if (!isOwner) return
     const current = user.page_permissions || {}
     const next: PagePermissions = { ...current }
-    if (hasAccess) next[pageKey] = true
-    else delete next[pageKey]
+    
+    if (hasAccess) {
+      next[pageKey] = true
+    } else {
+      delete next[pageKey]
+    }
 
     setSavingRole(user.id)
     try {
@@ -319,12 +358,13 @@ export default function PermissionsPage() {
       setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, page_permissions: next } : u))
       logUserActivity('تعديل صلاحية صفحة', user.full_name, { page_permissions: current }, { page_permissions: next }).then(loadActivityLog)
     } catch (err: any) {
-      alert('تعذر تعديل صلاحية الصفحة: ' + err.message)
+      showMessage('error', 'تعذر تعديل صلاحية الصفحة: ' + err.message)
     } finally {
       setSavingRole(null)
     }
   }
 
+  // 🔹 منح أو سحب جميع الصفحات
   async function setAllPages(user: AppUser, hasAccess: boolean) {
     if (!isOwner) return
     const next: PagePermissions = hasAccess ? Object.fromEntries(PAGE_LIST.map(p => [p.key, true])) : {}
@@ -334,8 +374,9 @@ export default function PermissionsPage() {
       if (error) throw error
       setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, page_permissions: next } : u))
       logUserActivity(hasAccess ? 'منح كل الصفحات' : 'إلغاء كل الصفحات', user.full_name, { page_permissions: user.page_permissions }, { page_permissions: next }).then(loadActivityLog)
+      showMessage('success', hasAccess ? 'تم منح وصول لجميع الصفحات' : 'تم سحب الوصول من جميع الصفحات')
     } catch (err: any) {
-      alert('تعذر تعديل الصفحات: ' + err.message)
+      showMessage('error', 'تعذر تعديل الصفحات: ' + err.message)
     } finally {
       setSavingRole(null)
     }
@@ -346,6 +387,8 @@ export default function PermissionsPage() {
     const defaults = ROLE_DEFAULT_PERMISSIONS[user.role]
     if (!defaults) return
     const defaultPagePermissions = pagesToPermissions(ROLE_DEFAULT_PAGES[user.role] || [])
+    
+    // تصميم نافذة التأكيد (مستقبلاً استبدل confirm بنافذة Modal مخصصة)
     if (!confirm(`سيتم استبدال صلاحيات وصفحات "${user.full_name}" بالإعدادات الافتراضية لدور "${roles[user.role]}". هل تريد المتابعة؟`)) return
 
     setSavingRole(user.id)
@@ -354,8 +397,9 @@ export default function PermissionsPage() {
       if (error) throw error
       setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...defaults, page_permissions: defaultPagePermissions } : u))
       logUserActivity('تطبيق إعدادات افتراضية', user.full_name, null, { ...defaults, page_permissions: defaultPagePermissions }).then(loadActivityLog)
+      showMessage('success', 'تم تطبيق الصلاحيات الافتراضية بنجاح')
     } catch (err: any) {
-      alert('تعذر تطبيق الإعدادات الافتراضية: ' + err.message)
+      showMessage('error', 'تعذر تطبيق الإعدادات الافتراضية: ' + err.message)
     } finally {
       setSavingRole(null)
     }
@@ -364,11 +408,11 @@ export default function PermissionsPage() {
   async function handleAddUser() {
     if (!isOwner) return
     if (!newUserForm.email.trim() || !newUserForm.password || !newUserForm.full_name.trim()) {
-      alert('يرجى ملء كل الحقول')
+      showMessage('error', 'يرجى ملء كل الحقول')
       return
     }
     if (newUserForm.password.length < 6) {
-      alert('كلمة المرور يجب أن تكون 6 أحرف على الأقل')
+      showMessage('error', 'كلمة المرور يجب أن تكون 6 أحرف على الأقل')
       return
     }
 
@@ -394,8 +438,9 @@ export default function PermissionsPage() {
       setNewUserForm({ email: '', password: '', full_name: '', role: 'employee' })
       loadUsers()
       loadActivityLog()
+      showMessage('success', 'تم إنشاء الحساب بنجاح')
     } catch (err: any) {
-      alert('خطأ: ' + err.message)
+      showMessage('error', 'خطأ: ' + err.message)
     } finally {
       setAddingUser(false)
     }
@@ -420,7 +465,7 @@ export default function PermissionsPage() {
   async function handleAddEmployee() {
     if (!isOwner) return
     if (!form.name.trim()) {
-      alert('الاسم مطلوب')
+      showMessage('error', 'الاسم مطلوب')
       return
     }
     setSaving(true)
@@ -432,15 +477,26 @@ export default function PermissionsPage() {
       setShowForm(false)
       setForm({ name: '', phone: '', role: 'production', salary: 0 })
       loadEmployees()
+      showMessage('success', 'تم إضافة الموظف بنجاح')
     } catch (err: any) {
-      alert('خطأ أثناء الحفظ: ' + err.message)
+      showMessage('error', 'خطأ أثناء الحفظ: ' + err.message)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div className="p-6 min-h-screen" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
+    <div className="p-6 min-h-screen bg-[#0D1B2A]" dir="rtl" style={{ fontFamily: "'Cairo', sans-serif" }}>
+      
+      {/* ── نظام الإشعارات المدمج (Banner) ── */}
+      {banner && (
+        <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[100] flex w-[90%] max-w-md items-start gap-3 rounded-xl border px-4 py-3 shadow-2xl backdrop-blur-sm transition-all ${banner.type === 'success' ? 'bg-emerald-950/90 border-emerald-400/30' : 'bg-red-950/90 border-red-500/30'}`}>
+          {banner.type === 'success' ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400 mt-0.5" /> : <AlertTriangle className="h-5 w-5 shrink-0 text-red-400 mt-0.5" />}
+          <p className="flex-1 text-sm text-white leading-relaxed">{banner.message}</p>
+          <button onClick={() => setBanner(null)} className="text-white/50 hover:text-white transition"><X className="h-4 w-4" /></button>
+        </div>
+      )}
+
       <div className="mb-6">
         <h1 className="text-2xl font-black text-white">🔐 الصلاحيات والموظفون</h1>
         <p className="text-sm text-gray-500 mt-1">إدارة أدوار المستخدمين وقاعدة بيانات الموظفين</p>
@@ -449,28 +505,23 @@ export default function PermissionsPage() {
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setActiveTab('roles')}
-          className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'roles' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10'}`}
+          className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'roles' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10 hover:bg-white/5'}`}
         >
           🔑 صلاحيات المستخدمين
         </button>
         {isOwner && (
           <button
             onClick={() => setActiveTab('employees')}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'employees' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10'}`}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${activeTab === 'employees' ? 'bg-amber-500 text-black' : 'bg-[#111927] text-gray-400 border border-white/10 hover:bg-white/5'}`}
           >
             👥 إدارة الموظفين
           </button>
         )}
       </div>
 
+      {/* ══════════ تبويب: صلاحيات المستخدمين ══════════ */}
       {activeTab === 'roles' && (
         <div>
-          {rolesError && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 mb-6 text-sm text-red-400">
-              ⚠️ {rolesError}
-            </div>
-          )}
-
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-gray-400">
               {isOwner ? 'تعيين الأدوار والصلاحيات والصفحات المسموحة لمستخدمي النظام' : 'عرض أدوار وصلاحيات مستخدمي النظام (للقراءة فقط)'}
@@ -478,101 +529,68 @@ export default function PermissionsPage() {
             {isOwner && (
               <button
                 onClick={() => setShowAddUser(true)}
-                className="px-4 py-2 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition text-sm shadow-lg shadow-amber-500/20"
+                className="px-4 py-2 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition text-sm flex items-center gap-2"
               >
-                ➕ إضافة مستخدم جديد
+                <Plus size={16} /> إضافة مستخدم جديد
               </button>
             )}
           </div>
 
           {isOwner && showAddUser && (
-            <div
-              className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
-              onClick={() => setShowAddUser(false)}
-            >
-              <div
-                className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl"
-                onClick={e => e.stopPropagation()}
-              >
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowAddUser(false)}>
+              <div className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl" onClick={e => e.stopPropagation()}>
                 <h2 className="text-lg font-bold text-amber-400 mb-4">➕ إضافة مستخدم جديد</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="sm:col-span-2">
                     <label className="block text-xs text-gray-500 mb-1">الاسم الكامل *</label>
-                    <input
-                      type="text"
-                      value={newUserForm.full_name}
-                      onChange={e => setNewUserForm(f => ({ ...f, full_name: e.target.value }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                    />
+                    <input type="text" value={newUserForm.full_name} onChange={e => setNewUserForm(f => ({ ...f, full_name: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs text-gray-500 mb-1">البريد الإلكتروني *</label>
-                    <input
-                      type="email"
-                      value={newUserForm.email}
-                      onChange={e => setNewUserForm(f => ({ ...f, email: e.target.value }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                      dir="ltr"
-                    />
+                    <input type="email" value={newUserForm.email} onChange={e => setNewUserForm(f => ({ ...f, email: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" dir="ltr" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">كلمة المرور * (6 أحرف على الأقل)</label>
-                    <input
-                      type="text"
-                      value={newUserForm.password}
-                      onChange={e => setNewUserForm(f => ({ ...f, password: e.target.value }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                      dir="ltr"
-                    />
+                    <input type="text" value={newUserForm.password} onChange={e => setNewUserForm(f => ({ ...f, password: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" dir="ltr" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">الدور</label>
-                    <select
-                      value={newUserForm.role}
-                      onChange={e => setNewUserForm(f => ({ ...f, role: e.target.value }))}
-                      className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
-                    >
+                    <select value={newUserForm.role} onChange={e => setNewUserForm(f => ({ ...f, role: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none">
                       {Object.entries(roles).filter(([k]) => k !== 'owner').map(([key, label]) => (
                         <option key={key} value={key} className="bg-[#0D1B2A]">{label}</option>
                       ))}
                     </select>
                   </div>
                 </div>
-
                 <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={handleAddUser}
-                    disabled={addingUser}
-                    className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
-                  >
-                    {addingUser ? 'جاري الإنشاء...' : '✅ إنشاء الحساب'}
+                  <button onClick={handleAddUser} disabled={addingUser} className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition flex items-center justify-center gap-2 disabled:opacity-50">
+                    {addingUser ? <Loader2 size={16} className="animate-spin" /> : '✅ إنشاء الحساب'}
                   </button>
-                  <button
-                    onClick={() => setShowAddUser(false)}
-                    className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition"
-                  >
-                    إلغاء
-                  </button>
+                  <button onClick={() => setShowAddUser(false)} className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition">إلغاء</button>
                 </div>
-                <p className="text-[11px] text-gray-600 mt-3">
-                  💡 سيتم إنشاء الحساب مباشرة بكلمة المرور المحددة، ويمكنه تسجيل الدخول فوراً. شارك بيانات الدخول معه بأمان.
-                </p>
+                <p className="text-[11px] text-gray-600 mt-3 text-center">💡 سيتم إنشاء الحساب مباشرة بكلمة المرور المحددة، ويمكنه تسجيل الدخول فوراً.</p>
               </div>
             </div>
           )}
 
           {(loadingUsers || loadingMe) ? (
-            <div className="text-center py-8 text-gray-600">جاري التحميل...</div>
+            <div className="flex flex-col items-center justify-center py-16 text-gray-500 gap-3">
+              <Loader2 size={32} className="animate-spin text-amber-500" />
+              <p className="text-sm font-medium">جاري تحميل البيانات...</p>
+            </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row gap-3 mb-2">
-                <input
-                  type="text"
-                  placeholder="🔍 بحث بالاسم أو البريد الإلكتروني..."
-                  value={userSearch}
-                  onChange={e => setUserSearch(e.target.value)}
-                  className="flex-1 bg-[#111927] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-amber-500/50 outline-none"
-                />
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="text"
+                    placeholder="بحث بالاسم أو البريد الإلكتروني..."
+                    value={userSearch}
+                    onChange={e => setUserSearch(e.target.value)}
+                    className="w-full bg-[#111927] border border-white/10 rounded-xl pr-11 pl-4 py-2.5 text-sm text-white focus:border-amber-500/50 outline-none"
+                  />
+                </div>
                 <select
                   value={userRoleFilter}
                   onChange={e => setUserRoleFilter(e.target.value)}
@@ -588,204 +606,209 @@ export default function PermissionsPage() {
               {filteredUsers.map(u => {
                 const linkedEmployee = employees.find(e => e.user_id === u.id)
                 return (
-                <div key={u.id} className={`bg-[#111927] rounded-2xl border p-5 ${u.is_active === false ? 'border-red-500/20 opacity-70' : 'border-white/5'}`}>
-                  <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">
-                        {u.full_name?.[0] || '?'}
-                      </div>
-                      <div>
-                        <div className="text-sm text-white font-bold flex items-center gap-2">
-                          {u.full_name}
-                          {u.is_active === false && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">معطّل</span>
-                          )}
+                  <div key={u.id} className={`bg-[#111927] rounded-2xl border p-5 transition ${u.is_active === false ? 'border-red-500/20 opacity-70' : 'border-white/5 hover:border-amber-500/20'}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-4 mb-4 border-b border-white/5 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center text-lg font-bold shrink-0">
+                          {u.full_name?.[0] || '?'}
                         </div>
-                        <div className="text-xs text-gray-500">{u.email}</div>
-                        <div className="text-[10px] text-gray-600 mt-0.5">
-                          آخر دخول: {u.last_login_at ? new Date(u.last_login_at).toLocaleString('ar-EG') : 'لم يسجل دخول بعد'}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {isOwner ? (
-                        <select
-                          value={u.role}
-                          disabled={savingRole === u.id}
-                          onChange={e => updateRole(u.id, e.target.value)}
-                          className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
-                        >
-                          {Object.entries(roles).map(([k, v]) => (
-                            <option key={k} value={k}>{v}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-300 border border-white/10">
-                          {roles[u.role] || u.role}
-                        </span>
-                      )}
-                      {isOwner && (
-                        <button
-                          onClick={() => applyRoleDefaults(u)}
-                          disabled={savingRole === u.id}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
-                        >
-                          ↺ تطبيق الإعدادات الافتراضية للدور
-                        </button>
-                      )}
-                      {isOwner && (
-                        <button
-                          onClick={() => toggleActive(u)}
-                          disabled={savingRole === u.id}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${
-                            u.is_active === false
-                              ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20'
-                              : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
-                          }`}
-                        >
-                          {u.is_active === false ? '✓ تفعيل الحساب' : '⛔ تعطيل الحساب'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="h-px bg-white/5 mb-4" />
-
-                  {/* 🔹 الربط الإداري بملف الموظف */}
-                  <div className="bg-black/20 p-3 rounded-xl border border-white/5 mb-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-gray-400 font-bold mb-1">🔗 الربط الإداري بملف الموظف (HR Link)</p>
-                      {linkedEmployee ? (
-                        <p className="text-sm text-green-400 font-bold">👔 مرتبط بـ: {linkedEmployee.name}</p>
-                      ) : (
-                        <p className="text-xs text-amber-500/70">⚠️ هذا الحساب غير مرتبط بأي موظف في الإدارة.</p>
-                      )}
-                    </div>
-                    {isOwner && (
-                      <div>
-                        {linkedEmployee ? (
-                          <button onClick={() => unlinkEmployeeFromUser(linkedEmployee.id, u)} disabled={savingRole === u.id} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition">فك الربط ❌</button>
-                        ) : (
-                          <select value="" onChange={e => linkEmployeeToUser(e.target.value, u)} disabled={savingRole === u.id} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
-                            <option value="">— ربط الحساب بموظف —</option>
-                            {employees.filter(e => !e.user_id).map(e => (
-                              <option key={e.id} value={e.id}>{e.name}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── الصلاحيات العريضة (أفعال) ── */}
-                  <p className="text-[11px] text-gray-600 font-semibold mb-2">🛠️ صلاحيات الأفعال</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
-                    {PERMISSION_KEYS.map(key => (
-                      <label
-                        key={key}
-                        className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border transition ${
-                          u[key] ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-white/5 border-white/10 text-gray-500'
-                        } ${isOwner ? 'cursor-pointer' : 'cursor-default'} ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={u[key]}
-                          disabled={!isOwner}
-                          onChange={e => isOwner && updatePermission(u.id, key, e.target.checked)}
-                          className="accent-amber-500"
-                        />
-                        {PERMISSION_LABELS[key]}
-                      </label>
-                    ))}
-                  </div>
-
-                  {/* ── مستوى الصلاحية لكل صفحة (تفعيل / تعطيل فقط) ── */}
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[11px] text-gray-600 font-semibold">📄 صلاحية دخول الصفحات</p>
-                    {isOwner && u.role !== 'owner' && (
-                      <div className="flex gap-3">
-                        <button onClick={() => setAllPages(u, true)} disabled={savingRole === u.id} className="text-[11px] text-sky-400 hover:underline disabled:opacity-50">تفعيل الكل</button>
-                        <button onClick={() => setAllPages(u, false)} disabled={savingRole === u.id} className="text-[11px] text-gray-500 hover:underline disabled:opacity-50">إلغاء الكل</button>
-                      </div>
-                    )}
-                  </div>
-                  {u.role === 'owner' ? (
-                    <p className="text-[11px] text-gray-600">صاحب الحساب له صلاحية الدخول لكل الصفحات تلقائياً، مفيش داعي لتحديدها.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {PAGE_SECTIONS.map(({ section, pages }) => (
-                        <div key={section}>
-                          <p className="text-[10px] text-gray-500 font-bold mb-1.5 tracking-wide">{section}</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                            {pages.map(page => {
-                              const hasAccess = !!u.page_permissions?.[page.key]
-                              return (
-                                <div
-                                  key={page.key}
-                                  className={`flex items-center justify-between gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
-                                    hasAccess ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
-                                  } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
-                                >
-                                  <span className="truncate">{page.icon} {page.label}</span>
-                                  <label className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={hasAccess}
-                                      disabled={!isOwner}
-                                      onChange={e => isOwner && updatePagePermission(u, page.key, e.target.checked)}
-                                      className="sr-only peer"
-                                    />
-                                    <div className="w-7 h-4 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500"></div>
-                                  </label>
-                                </div>
-                              )
-                            })}
+                        <div>
+                          <div className="text-base text-white font-bold flex items-center gap-2">
+                            {u.full_name}
+                            {u.is_active === false && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">معطّل</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono mt-0.5">{u.email}</div>
+                          <div className="text-[10px] text-gray-500 mt-1">
+                            آخر دخول: {u.last_login_at ? new Date(u.last_login_at).toLocaleString('ar-EG') : 'لم يسجل دخول بعد'}
                           </div>
                         </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isOwner ? (
+                          <select
+                            value={u.role}
+                            disabled={savingRole === u.id}
+                            onChange={e => updateRole(u.id, e.target.value)}
+                            className="bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
+                          >
+                            {Object.entries(roles).map(([k, v]) => (
+                              <option key={k} value={k}>{v}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-300 border border-white/10">
+                            {roles[u.role] || u.role}
+                          </span>
+                        )}
+
+                        {isOwner && (
+                          <>
+                            <button
+                              onClick={() => applyRoleDefaults(u)}
+                              disabled={savingRole === u.id}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
+                            >
+                              ↺ تهيئة الصلاحيات الافتراضية للدور
+                            </button>
+                            <button
+                              onClick={() => toggleActive(u)}
+                              disabled={savingRole === u.id}
+                              className={`text-xs px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${
+                                u.is_active === false
+                                  ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20'
+                                  : 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20'
+                              }`}
+                            >
+                              {u.is_active === false ? 'تفعيل الحساب' : 'تعطيل الحساب'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 🔹 الربط الإداري بملف الموظف */}
+                    <div className="bg-black/20 p-3 rounded-xl border border-white/5 mb-5 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-gray-400 font-bold mb-1">🔗 الربط الإداري بملف الموظف (HR Link)</p>
+                        {linkedEmployee ? (
+                          <p className="text-sm text-green-400 font-bold">👔 مرتبط بـ: {linkedEmployee.name}</p>
+                        ) : (
+                          <p className="text-xs text-amber-500/70">⚠️ هذا الحساب غير مرتبط بأي موظف في الإدارة.</p>
+                        )}
+                      </div>
+                      {isOwner && (
+                        <div>
+                          {linkedEmployee ? (
+                            <button onClick={() => unlinkEmployeeFromUser(linkedEmployee.id, u)} disabled={savingRole === u.id} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition">فك الربط ❌</button>
+                          ) : (
+                            <select value="" onChange={e => linkEmployeeToUser(e.target.value, u)} disabled={savingRole === u.id} className="bg-[#0D1B2A] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-amber-500/50">
+                              <option value="">— ربط الحساب بموظف —</option>
+                              {employees.filter(e => !e.user_id).map(e => (
+                                <option key={e.id} value={e.id}>{e.name}</option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── صلاحيات الأفعال المحددة ── */}
+                    <p className="text-xs text-gray-400 font-bold mb-3 border-b border-white/5 pb-2">🛠️ صلاحيات الأفعال (النظام ككل)</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+                      {PERMISSION_KEYS.map(key => (
+                        <label
+                          key={key}
+                          className={`flex items-center gap-2 text-xs px-3 py-2.5 rounded-xl border transition ${
+                            u[key] ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-white/5 border-white/10 text-gray-500'
+                          } ${isOwner ? 'cursor-pointer hover:bg-white/10' : 'cursor-default'} ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={u[key]}
+                            disabled={!isOwner}
+                            onChange={e => isOwner && updatePermission(u.id, key, e.target.checked)}
+                            className="accent-amber-500 w-3.5 h-3.5"
+                          />
+                          {PERMISSION_LABELS[key]}
+                        </label>
                       ))}
                     </div>
-                  )}
-                </div>
+
+                    {/* ── صلاحية الوصول للصفحات ── */}
+                    <div className="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
+                      <p className="text-xs text-gray-400 font-bold">📄 صلاحية الدخول لصفحات القائمة الجانبية</p>
+                      {isOwner && u.role !== 'owner' && (
+                        <div className="flex gap-3">
+                          <button onClick={() => setAllPages(u, true)} disabled={savingRole === u.id} className="text-xs text-sky-400 hover:text-sky-300 transition disabled:opacity-50">تفعيل الكل</button>
+                          <button onClick={() => setAllPages(u, false)} disabled={savingRole === u.id} className="text-xs text-gray-500 hover:text-gray-400 transition disabled:opacity-50">إلغاء الكل</button>
+                        </div>
+                      )}
+                    </div>
+                    {u.role === 'owner' ? (
+                      <div className="p-4 bg-white/5 rounded-xl border border-white/10 text-center text-sm text-gray-400">
+                        👑 صاحب الحساب يمتلك صلاحية الدخول لجميع الصفحات والأقسام تلقائياً.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {PAGE_SECTIONS.map(({ section, pages }) => (
+                          <div key={section} className="bg-black/10 p-4 rounded-xl border border-white/5">
+                            <p className="text-[11px] text-gray-500 font-bold mb-3 tracking-wide uppercase">{section}</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                              {pages.map(page => {
+                                const hasAccess = !!u.page_permissions?.[page.key]
+                                return (
+                                  <div
+                                    key={page.key}
+                                    className={`flex items-center justify-between gap-3 text-xs px-3 py-2.5 rounded-lg border transition ${
+                                      hasAccess ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
+                                    } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
+                                  >
+                                    <span className="truncate">{page.icon} {page.label}</span>
+                                    {/* 🔹 مفتاح التفعيل Toggle بدلاً من القائمة المنسدلة */}
+                                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                      <input
+                                        type="checkbox"
+                                        checked={hasAccess}
+                                        disabled={!isOwner}
+                                        onChange={e => isOwner && updatePagePermission(u, page.key, e.target.checked)}
+                                        className="sr-only peer"
+                                      />
+                                      <div className="w-8 h-4 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500 opacity-80 peer-disabled:opacity-40"></div>
+                                    </label>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
               {filteredUsers.length === 0 && (
-                <div className="text-center py-8 text-gray-600 text-sm">لا يوجد مستخدمون مطابقون</div>
+                <div className="text-center py-16 bg-[#111927] rounded-2xl border border-white/5 text-gray-500 text-sm">
+                  لا يوجد مستخدمون مطابقون للبحث
+                </div>
               )}
             </div>
           )}
-          <p className="text-xs text-gray-600 mt-3">
+          <p className="text-xs text-gray-600 mt-4 text-center">
             {isOwner
-              ? '💡 زر التفعيل/التعطيل يمنح الموظف حق رؤية الصفحة واستخدامها. الحذف النهائي للبيانات يظل محصوراً في المالك أو المدير فقط للأمان.'
-              : '💡 الأدوار والصلاحيات المعروضة هنا للقراءة فقط، ويتم تعديلها من صاحب الحساب (owner) فقط.'}
+              ? '💡 زر التفعيل/التعطيل لكل صفحة يمنح الموظف حق رؤية الشاشة. الحذف النهائي للبيانات محصور برتبة الإدارة (Admin / Owner).'
+              : '💡 الأدوار والصلاحيات المعروضة هنا للقراءة فقط، ويتم تعديلها بواسطة المالك (Owner) حصرياً.'}
           </p>
 
           {/* ── سجل تغييرات الصلاحيات ── */}
-          <div className="mt-8">
+          <div className="mt-8 border-t border-white/5 pt-6">
             <button
               onClick={() => setShowLog(v => !v)}
-              className="text-sm font-bold text-gray-400 hover:text-amber-400 transition flex items-center gap-2"
+              className="text-sm font-bold text-gray-400 hover:text-amber-400 transition flex items-center gap-2 bg-[#111927] px-4 py-2 rounded-xl border border-white/5"
             >
-              📜 سجل تغييرات الصلاحيات {showLog ? '▲' : '▼'}
+              📜 سجل الحركات وتغييرات الصلاحيات {showLog ? '▲' : '▼'}
             </button>
 
             {showLog && (
-              <div className="mt-3 bg-[#111927] rounded-2xl border border-white/5 p-4">
+              <div className="mt-3 bg-[#111927] rounded-2xl border border-white/5 p-5 shadow-lg">
                 {loadingLog ? (
-                  <div className="text-center py-6 text-gray-600 text-sm">جاري تحميل السجل...</div>
+                  <div className="text-center py-8 text-gray-600 text-sm">جاري تحميل السجل...</div>
                 ) : activityLog.length === 0 ? (
-                  <div className="text-center py-6 text-gray-600 text-sm">لا يوجد سجل تغييرات بعد</div>
+                  <div className="text-center py-8 text-gray-600 text-sm">لا يوجد سجل تغييرات مسجل في النظام</div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {activityLog.map(entry => (
-                      <div key={entry.id} className="flex items-center justify-between text-xs border-b border-white/5 pb-2 last:border-0">
-                        <div>
-                          <span className="text-amber-400 font-bold">{entry.action}</span>
-                          <span className="text-gray-400"> — {entry.entity_label || '—'}</span>
+                      <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center justify-between text-xs border-b border-white/5 pb-3 last:border-0">
+                        <div className="mb-2 sm:mb-0">
+                          <span className="text-amber-400 font-bold bg-amber-500/10 px-2 py-1 rounded-md">{entry.action}</span>
+                          <span className="text-gray-400 ml-2"> للمستخدم: <span className="text-white">{entry.entity_label || '—'}</span></span>
                           {entry.actor?.full_name && (
-                            <span className="text-gray-600"> بواسطة {entry.actor.full_name}</span>
+                            <span className="text-gray-500 block sm:inline sm:ml-2 mt-1 sm:mt-0">بواسطة: {entry.actor.full_name}</span>
                           )}
                         </div>
-                        <span className="text-gray-600 shrink-0 ms-2">
+                        <span className="text-gray-500 font-mono bg-black/20 px-2 py-1 rounded-md shrink-0">
                           {new Date(entry.created_at).toLocaleString('ar-EG')}
                         </span>
                       </div>
@@ -798,121 +821,92 @@ export default function PermissionsPage() {
         </div>
       )}
 
-      {/* ══════════ تبويب: إدارة الموظفين (owner بس) ══════════ */}
+      {/* ══════════ تبويب: إدارة الموظفين (للمالك فقط) ══════════ */}
       {activeTab === 'employees' && (
         isOwner ? (
           <div>
             <div className="flex items-center justify-end mb-4">
               <button
                 onClick={() => setShowForm(true)}
-                className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20"
+                className="px-5 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition shadow-lg shadow-amber-500/20 flex items-center gap-2"
               >
-                ➕ موظف جديد
+                <Plus size={16} /> موظف جديد
               </button>
             </div>
 
             {showForm && (
-              <div
-                className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
-                onClick={() => setShowForm(false)}
-              >
-                <div
-                  className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl"
-                  onClick={e => e.stopPropagation()}
-                >
-                  <h2 className="text-lg font-bold text-amber-400 mb-4">➕ إضافة موظف جديد</h2>
+              <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowForm(false)}>
+                <div className="bg-[#111927] border border-amber-500/30 rounded-2xl p-6 max-w-lg w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <h2 className="text-lg font-bold text-amber-400 mb-4">➕ إضافة بيانات موظف جديد</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="sm:col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">اسم الموظف *</label>
-                      <input
-                        type="text"
-                        value={form.name}
-                        onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                      />
+                      <label className="block text-xs text-gray-500 mb-1">اسم الموظف بالكامل *</label>
+                      <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50" />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">الهاتف</label>
-                      <input
-                        type="text"
-                        value={form.phone}
-                        onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                      />
+                      <input type="text" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50 text-left font-mono" />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">الدور / الوظيفة</label>
-                      <select
-                        value={form.role}
-                        onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none"
-                      >
+                      <label className="block text-xs text-gray-500 mb-1">الدور / القسم</label>
+                      <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500/50 outline-none">
                         {Object.entries(roles).map(([key, label]) => (
                           <option key={key} value={key} className="bg-[#0D1B2A]">{label}</option>
                         ))}
                       </select>
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">الراتب الشهري</label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={form.salary}
-                        onChange={e => setForm(f => ({ ...f, salary: Number(e.target.value) }))}
-                        className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50"
-                      />
+                      <label className="block text-xs text-gray-500 mb-1">الراتب الشهري المتفق عليه (ج.م)</label>
+                      <input type="number" min={0} value={form.salary} onChange={e => setForm(f => ({ ...f, salary: Number(e.target.value) }))} className="w-full bg-[#0D1B2A] border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500/50 font-mono" />
                     </div>
                   </div>
 
                   <div className="flex gap-3 mt-6">
-                    <button
-                      onClick={handleAddEmployee}
-                      disabled={saving}
-                      className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50"
-                    >
-                      {saving ? 'جاري الحفظ...' : '✅ حفظ الموظف'}
+                    <button onClick={handleAddEmployee} disabled={saving} className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                      {saving ? <Loader2 size={16} className="animate-spin" /> : '✅ حفظ بيانات الموظف'}
                     </button>
-                    <button
-                      onClick={() => setShowForm(false)}
-                      className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition"
-                    >
-                      إلغاء
-                    </button>
+                    <button onClick={() => setShowForm(false)} className="px-5 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/5 transition">إلغاء</button>
                   </div>
                 </div>
               </div>
             )}
 
             {loadingEmployees ? (
-              <div className="text-center py-16 text-gray-600">جاري تحميل الموظفين...</div>
+              <div className="flex flex-col items-center justify-center py-16 text-gray-500 gap-3 bg-[#111927] rounded-2xl border border-white/5">
+                <Loader2 size={32} className="animate-spin text-amber-500" />
+                <p className="text-sm font-medium">جاري تحميل سجلات الموظفين...</p>
+              </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {employees.map(emp => (
-                  <div key={emp.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 hover:border-amber-500/30 transition-all group">
-                    <div className="flex justify-between items-start mb-2">
+                  <div key={emp.id} className="bg-[#111927] rounded-2xl border border-white/5 p-5 shadow-lg hover:border-amber-500/30 transition-all group">
+                    <div className="flex justify-between items-start mb-3 border-b border-white/5 pb-3">
                       <h3 className="font-bold text-white text-base group-hover:text-amber-400 transition">{emp.name}</h3>
-                      {emp.user_id && (
-                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20" title="تم ربطه بحساب نظام">متصل 🟢</span>
+                      {emp.user_id ? (
+                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/30 font-bold" title="تم ربطه بحساب مستخدم لدخول النظام">متصل بالنظام 🟢</span>
+                      ) : (
+                        <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full border border-white/10 font-bold" title="مجرد سجل HR بدون حساب لدخول النظام">سجل فقط ⚪</span>
                       )}
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-gray-500 text-xs">💼 الوظيفة: {roles[emp.role] || emp.role}</p>
-                      <p className="text-gray-500 text-xs">📞 الهاتف: {emp.phone || 'غير متوفر'}</p>
-                      <p className="text-amber-500 text-xs font-bold">💵 الراتب: {emp.salary} ج.م</p>
+                    <div className="space-y-2">
+                      <p className="text-gray-400 text-xs flex justify-between"><span>💼 القسم:</span> <span className="text-white font-bold">{roles[emp.role] || emp.role}</span></p>
+                      <p className="text-gray-400 text-xs flex justify-between"><span>📞 الهاتف:</span> <span className="text-white font-mono">{emp.phone || '—'}</span></p>
+                      <p className="text-gray-400 text-xs flex justify-between"><span>💵 الراتب الأساسي:</span> <span className="text-amber-400 font-bold font-mono">{emp.salary.toLocaleString('ar-EG')} ج.م</span></p>
                     </div>
                   </div>
                 ))}
                 {employees.length === 0 && (
-                  <div className="col-span-full text-center py-16 text-gray-600 text-sm">
-                    لا يوجد موظفون مسجلون بعد
+                  <div className="col-span-full text-center py-16 bg-[#111927] rounded-2xl border border-white/5 text-gray-500 text-sm">
+                    لا يوجد ملفات موظفين مسجلة في الإدارة (HR) بعد.
                   </div>
                 )}
               </div>
             )}
           </div>
         ) : (
-          <div className="text-center py-16 text-gray-600 text-sm">
-            🚫 هذه الصفحة متاحة فقط لصاحب الحساب (owner)
+          <div className="text-center py-20 bg-[#111927] rounded-2xl border border-white/5 text-gray-500 text-sm flex flex-col items-center gap-3">
+            <AlertTriangle size={32} className="text-amber-500 opacity-50" />
+            <p>🚫 عذراً، قسم إدارة شؤون الموظفين (HR) متاح فقط لصاحب الحساب المالك (Owner).</p>
           </div>
         )
       )}
