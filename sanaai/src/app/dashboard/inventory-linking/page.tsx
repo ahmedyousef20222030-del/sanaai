@@ -3,9 +3,8 @@
 // ⚠️ المسار الموصى به لهذا الملف داخل المشروع: src/app/dashboard/inventory-linking/page.tsx
 //
 // الغرض من هذه الشاشة: ربط كل صنف مخزون جاهز (inventory) بمنتج التصنيع
-// المقابل له في كتالوج (products)، عشان الترييجر التلقائي في database_schema.sql
-// (قسم 13) يقدر يجيب معادلة BOM الصحيحة لأي أوردر عميل حقيقي بدون تدخل يدوي.
-// راجع ملاحظات المراجعة في database_schema.sql قبل الربط الفعلي بالقائمة الجانبية.
+// المقابل له في كتالوج (products)، عشان الترييجر التلقائي يقدر يجيب
+// معادلة BOM الصحيحة لأي أوردر عميل حقيقي بدون تدخل يدوي.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -52,16 +51,6 @@ interface BannerState {
 type LinkFilter = 'all' | 'linked' | 'unlinked';
 
 // ============================================================================
-// ثوابت الهوية البصرية
-// ============================================================================
-
-const COLORS = {
-  bg: '#0D1B2A',
-  card: '#111927',
-  text: '#F0EDE8',
-};
-
-// ============================================================================
 // دوال مساعدة
 // ============================================================================
 
@@ -73,8 +62,23 @@ function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ');
 }
 
+// دالة مساعدة محلية لجلب معرّف المصنع (Tenant) بشكل آمن من الجلسة
+async function getTenantId(): Promise<string | null> {
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return null;
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('tenant_id')
+    .eq('id', user.id)
+    .single();
+
+  if (error || !data?.tenant_id) return null;
+  return data.tenant_id;
+}
+
 // ============================================================================
-// مكوّن: بانر تنبيه (بديل alert())
+// مكوّن: بانر تنبيه (بديل أنيق للـ alert)
 // ============================================================================
 
 function Banner({ banner, onClose }: { banner: BannerState; onClose: () => void }) {
@@ -89,7 +93,7 @@ function Banner({ banner, onClose }: { banner: BannerState; onClose: () => void 
     <div
       dir="rtl"
       className={cn(
-        'fixed top-5 left-1/2 z-[100] flex w-[92%] max-w-md -translate-x-1/2 items-start gap-3 rounded-xl border px-4 py-3 shadow-2xl backdrop-blur-sm',
+        'fixed top-5 left-1/2 z-[100] flex w-[92%] max-w-md -translate-x-1/2 items-start gap-3 rounded-xl border px-4 py-3 shadow-2xl backdrop-blur-sm transition-all duration-300 animate-in slide-in-from-top-4',
         isSuccess ? 'border-emerald-400/30 bg-emerald-950/90' : 'border-red-500/30 bg-red-950/90'
       )}
     >
@@ -135,27 +139,15 @@ export default function InventoryProductLinkingPage() {
 
   const bootstrapSession = useCallback(async () => {
     setIsBootstrapping(true);
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !authData?.user) {
-      showBanner('error', 'تعذر التحقق من جلسة الدخول، الرجاء تسجيل الدخول مرة أخرى');
+    const id = await getTenantId();
+    
+    if (!id) {
+      showBanner('error', 'تعذر تحديد بيانات المصنع الخاص بحسابك. يرجى تسجيل الدخول مجدداً.');
       setIsBootstrapping(false);
       return;
     }
 
-    const { data: userRow, error: userError } = await supabase
-      .from('users')
-      .select('tenant_id')
-      .eq('id', authData.user.id)
-      .single();
-
-    if (userError || !userRow?.tenant_id) {
-      showBanner('error', 'تعذر تحديد بيانات المصنع الخاص بحسابك');
-      setIsBootstrapping(false);
-      return;
-    }
-
-    setTenantId(userRow.tenant_id);
+    setTenantId(id);
     setIsBootstrapping(false);
   }, [showBanner]);
 
@@ -201,28 +193,36 @@ export default function InventoryProductLinkingPage() {
   }, [tenantId, fetchData]);
 
   // --------------------------------------------------------------------------
-  // ربط / إلغاء ربط صنف بمنتج
+  // التحديث اللحظي للربط (Optimistic UI Update)
   // --------------------------------------------------------------------------
 
   const handleLinkChange = async (itemId: string, productId: string) => {
     if (!tenantId) return;
+    
     setSavingRowId(itemId);
+    const targetProductId = productId || null;
+    
+    // 1. أخذ نسخة من الحالة القديمة للتراجع (Rollback) في حالة الخطأ
+    const previousItems = [...items];
 
+    // 2. تحديث الواجهة فوراً لتجربة مستخدم فائقة السرعة
+    setItems((prev) =>
+      prev.map((item) => (item.id === itemId ? { ...item, product_id: targetProductId } : item))
+    );
+
+    // 3. الاتصال بقاعدة البيانات (مع فرض العزل)
     const { error } = await supabase
       .from('inventory')
-      .update({ product_id: productId || null })
+      .update({ product_id: targetProductId })
       .eq('id', itemId)
       .eq('tenant_id', tenantId);
 
+    // 4. معالجة النتيجة
     if (error) {
+      setItems(previousItems); // Rollback
       showBanner('error', 'تعذر حفظ الربط، الرجاء المحاولة مرة أخرى');
-      setSavingRowId(null);
-      return;
     }
-
-    setItems((prev) =>
-      prev.map((item) => (item.id === itemId ? { ...item, product_id: productId || null } : item))
-    );
+    
     setSavingRowId(null);
   };
 
@@ -255,8 +255,7 @@ export default function InventoryProductLinkingPage() {
     return (
       <div
         dir="rtl"
-        className="flex min-h-screen items-center justify-center"
-        style={{ backgroundColor: COLORS.bg, fontFamily: "'Cairo', sans-serif" }}
+        className="flex min-h-screen items-center justify-center bg-[#0D1B2A] font-['Cairo',sans-serif]"
       >
         <div className="flex flex-col items-center gap-3 text-[#F0EDE8]/70">
           <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
@@ -269,8 +268,7 @@ export default function InventoryProductLinkingPage() {
   return (
     <div
       dir="rtl"
-      className="min-h-screen pb-16"
-      style={{ backgroundColor: COLORS.bg, fontFamily: "'Cairo', sans-serif", color: COLORS.text }}
+      className="min-h-screen pb-16 bg-[#0D1B2A] text-[#F0EDE8] font-['Cairo',sans-serif]"
     >
       {banner && <Banner banner={banner} onClose={() => setBanner(null)} />}
 
@@ -284,7 +282,7 @@ export default function InventoryProductLinkingPage() {
             <div>
               <h1 className="text-lg font-bold text-[#F0EDE8]">ربط المخزون بمنتجات التصنيع</h1>
               <p className="mt-0.5 text-sm text-[#F0EDE8]/50">
-                كل صنف تربطه بمنتج، الأوردرات اللي فيه تقدر تجيب معادلة الخامات (BOM) تلقائياً
+                اربط كل صنف بمنتج، ليتم حساب خامات الأوردرات آلياً بناءً على معادلة التصنيع (BOM)
               </p>
             </div>
           </div>
@@ -310,11 +308,11 @@ export default function InventoryProductLinkingPage() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ابحث بالاسم أو الكود أو الفئة..."
-              className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-2.5 pr-10 pl-4 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50"
+              className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-2.5 pr-10 pl-4 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50 transition-colors"
             />
           </div>
 
-          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1 overflow-x-auto">
             {(
               [
                 { key: 'all', label: 'الكل' },
@@ -326,7 +324,7 @@ export default function InventoryProductLinkingPage() {
                 key={opt.key}
                 onClick={() => setLinkFilter(opt.key)}
                 className={cn(
-                  'rounded-lg px-3.5 py-1.5 text-xs font-medium transition',
+                  'rounded-lg px-3.5 py-1.5 text-xs font-medium transition shrink-0',
                   linkFilter === opt.key
                     ? 'bg-amber-500 text-[#0D1B2A]'
                     : 'text-[#F0EDE8]/60 hover:bg-white/5'
@@ -339,7 +337,7 @@ export default function InventoryProductLinkingPage() {
         </div>
 
         {/* جدول الأصناف */}
-        <div className="overflow-hidden rounded-2xl border border-white/5" style={{ backgroundColor: COLORS.card }}>
+        <div className="overflow-hidden rounded-2xl border border-white/5 bg-[#111927]">
           <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
             <div className="flex items-center gap-2">
               <PackageSearch className="h-4.5 w-4.5 text-[#F0EDE8]/40" />
@@ -359,10 +357,10 @@ export default function InventoryProductLinkingPage() {
           ) : filteredItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <PackageSearch className="h-10 w-10 text-[#F0EDE8]/20" />
-              <p className="text-sm text-[#F0EDE8]/50">لا توجد أصناف مطابقة لبحثك أو الفلتر المختار</p>
+              <p className="text-sm text-[#F0EDE8]/50">لا توجد أصناف مطابقة لبحثك أو للفلتر المختار</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-white/5 text-right text-xs text-[#F0EDE8]/40">
@@ -393,13 +391,13 @@ export default function InventoryProductLinkingPage() {
                             onChange={(e) => handleLinkChange(item.id, e.target.value)}
                             disabled={savingRowId === item.id}
                             className={cn(
-                              'w-full max-w-[220px] rounded-lg border bg-white/[0.03] px-3 py-1.5 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50 disabled:opacity-50',
+                              'w-full max-w-[220px] rounded-lg border bg-white/[0.03] px-3 py-1.5 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50 disabled:opacity-50 transition-colors',
                               item.product_id ? 'border-emerald-400/30' : 'border-amber-500/30'
                             )}
                           >
-                            <option value="">— بدون ربط —</option>
+                            <option value="" className="bg-[#111927] text-gray-400">— بدون ربط —</option>
                             {products.map((p) => (
-                              <option key={p.id} value={p.id}>
+                              <option key={p.id} value={p.id} className="bg-[#111927] text-[#F0EDE8]">
                                 {p.name}
                                 {p.sku ? ` (${p.sku})` : ''}
                               </option>

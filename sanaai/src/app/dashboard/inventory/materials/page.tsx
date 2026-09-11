@@ -21,18 +21,26 @@ import {
   Filter,
 } from 'lucide-react'
 
-// ── دالة العزل (معرّفة محلياً لتجنب أي أخطاء استيراد) ──
-async function getMyTenantId() {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data } = await supabase.from('users').select('tenant_id').eq('id', user.id).single()
-  return data?.tenant_id ?? null
+// ============================================================================
+// 🔒 الأمان: دالة العزل (معرّفة محلياً لتجنب أي أخطاء استيراد)
+// ============================================================================
+async function getMyTenantId(): Promise<string | null> {
+  const { data: authData, error: authError } = await supabase.auth.getUser()
+  if (authError || !authData?.user) return null
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('tenant_id')
+    .eq('id', authData.user.id)
+    .single()
+
+  if (error || !data) return null
+  return data.tenant_id
 }
 
 // ============================================================================
-// الأنواع (Types)
+// 📦 الأنواع (Types)
 // ============================================================================
-
 type MaterialCategory = 'أقمشة' | 'خيوط' | 'أزرار وإكسسوارات' | 'عبوات وتغليف' | 'مواد كيماوية' | 'عام'
 type MaterialUnit = 'متر' | 'بكرة' | 'حبة' | 'دستة' | 'كيلوجرام' | 'جرام' | 'لتر' | 'قطعة' | 'رول'
 
@@ -95,7 +103,7 @@ const EMPTY_MATERIAL_FORM: MaterialFormState = {
 }
 
 // ============================================================================
-// دوال مساعدة ومكونات UI مصغرة
+// 🎨 دوال مساعدة ومكونات UI مصغرة
 // ============================================================================
 
 function formatNumber(value: number): string {
@@ -156,14 +164,16 @@ function ModalShell({ title, onClose, children, maxWidth = 'max-w-lg' }: { title
           <h3 className="text-base font-bold text-white">{title}</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white/5 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
-        <div className="max-h-[75vh] overflow-y-auto px-6 py-5">{children}</div>
+        <div className="max-h-[75vh] overflow-y-auto px-6 py-5 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+          {children}
+        </div>
       </div>
     </div>
   )
 }
 
 // ============================================================================
-// المكون الرئيسي
+// 🚀 المكون الرئيسي
 // ============================================================================
 
 export default function MaterialsInventoryPage() {
@@ -371,7 +381,7 @@ export default function MaterialsInventoryPage() {
 
     setIsSavingTransaction(true)
 
-    // 🔒 تم إصلاح الثغرة: الدالة تعتمد بالكامل على الجلسة الموثقة في قاعدة البيانات.
+    // 🔒 تم التأكيد على الثغرة: الدالة هنا تمرر فقط المعطيات المطلوبة، ويستنتج السيرفر الـ tenant_id من الجلسة تلقائياً.
     const { data, error } = await supabase.rpc('fn_record_manual_material_transaction', {
       p_material_id: transactionForm.material.id,
       p_transaction_type: transactionForm.type,
@@ -459,7 +469,7 @@ export default function MaterialsInventoryPage() {
 
       {/* تنبيه النواقص الذكي */}
       {stats.lowStockCount > 0 && (
-        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 animate-in fade-in">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
           <p className="text-sm leading-relaxed text-gray-300">
             يوجد <span className="font-bold text-amber-500">{formatNumber(stats.lowStockCount)}</span> صنف من
