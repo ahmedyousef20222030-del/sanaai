@@ -15,10 +15,22 @@ export default function LandingPage() {
   const [signup, setSignup] = useState({ factory: '', name: '', email: '', password: '' })
   const [login, setLogin] = useState({ email: '', password: '' })
   
-  // ── عداد المصانع (الميزة التفاعلية لنادي المؤسسين) ──
-  const [registeredFactories, setRegisteredFactories] = useState(143)
+  // ── عداد المصانع (الرقم الحقيقي من قاعدة البيانات عبر دالة RPC) ──
+  const [registeredFactories, setRegisteredFactories] = useState<number>(0)
   const TARGET_FACTORIES = 200
   const progressPercentage = Math.min((registeredFactories / TARGET_FACTORIES) * 100, 100)
+
+  // جلب العدد الفعلي بمجرد تحميل الصفحة عبر الدالة الآمنة (RPC)
+  useEffect(() => {
+    async function fetchRealCount() {
+      const { data, error } = await supabase.rpc('get_active_tenants_count')
+      
+      if (!error && data !== null) {
+        setRegisteredFactories(data)
+      }
+    }
+    fetchRealCount()
+  }, [])
 
   function showToast(msg: string, type: 'success' | 'warning' | 'error' | 'info' = 'success') {
     setToast({ msg, type })
@@ -127,7 +139,9 @@ export default function LandingPage() {
             
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm md:text-base font-bold text-white">🚀 انضم لـ ٢٠٠ مصنع شركاء نجاح أول مرحلة</h3>
-              <span className="text-2xl font-black text-[#C8963E]">{registeredFactories}</span>
+              <span className="text-2xl font-black text-[#C8963E]">
+                {registeredFactories > 0 ? registeredFactories : <span className="animate-pulse opacity-50">...</span>}
+              </span>
             </div>
             
             <div className="w-full bg-[#080C12] rounded-full h-2 mb-3 border border-white/5 overflow-hidden">
