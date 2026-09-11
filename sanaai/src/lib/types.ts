@@ -1,4 +1,4 @@
-import { PageKey, PermissionLevel, PagePermissions, levelAtLeast } from './pages'
+import { PagePermissions } from './pages'
 
 // ═══════════════════════════════════════════════════════════════
 // Role definitions — MUST stay in sync with the DB CHECK constraint
@@ -82,33 +82,21 @@ export enum Permission {
 
 // Which PageKey drives each fine-grained action domain. Only pages with a
 // real server-enforced action set need an entry here — the rest of
-// PAGE_LIST are pure page-visibility gates (still get a level in
-// page_permissions, it just isn't wired to a Permission yet).
-const ORDERS_PAGE: PageKey = '/dashboard/orders'
-const CLIENTS_PAGE: PageKey = '/dashboard/clients'
-const PRODUCTION_PAGE: PageKey = '/dashboard/production'
-const EMPLOYEES_PAGE: PageKey = '/dashboard/employees'
-const USERS_PAGE: PageKey = '/dashboard/permissions'
+// PAGE_LIST are pure page-visibility gates.
+const ORDERS_PAGE = '/dashboard/orders'
+const CLIENTS_PAGE = '/dashboard/clients'
+const PRODUCTION_PAGE = '/dashboard/production'
+const EMPLOYEES_PAGE = '/dashboard/employees'
+const USERS_PAGE = '/dashboard/permissions'
 
 /**
  * Derives the effective Permission list for a user from their real DB row.
  *
- * Design decisions (documented because the DB does not model every
- * permission explicitly — these are judgment calls, revisit if the
- * intended business rules differ):
- *
- * - READS: `tenant_isolation_policy` RLS is `ALL` (tenant-wide) for orders
- *   and production, so any active tenant member may read them here too,
- *   regardless of their page_permissions level (page_permissions only
- *   gates the dashboard's own navigation/UI, not these two tables' RLS).
- *   Clients is the one entity the DB explicitly gates for reads, so a
- *   `view`-or-above level on the clients page is required for ClientsRead.
- * - WRITES: an `edit` (or `edit_delete`) level on the relevant page grants
- *   create/update for that domain. `edit_delete` (or the Admin role, which
- *   is always trusted with destructive actions) additionally grants the
- *   delete permission for that domain.
- * - Owner is always a superset of every permission, mirroring
- *   `handle_new_user`, which grants a brand-new owner full access.
+ * Design decisions:
+ * - We have updated to a simple boolean permission system. 
+ * - If a user has access to a page (e.g., `pages.clients === true`), they 
+ *   automatically get Read, Create, and Update permissions for that domain.
+ * - Delete operations are strictly reserved for Admins and Owners to ensure safety.
  */
 export function derivePermissions(row: DbUserRow): Permission[] {
   if (row.role === UserRole.Owner) {
@@ -119,44 +107,44 @@ export function derivePermissions(row: DbUserRow): Permission[] {
   const isAdmin = row.role === UserRole.Admin
   const pages = row.page_permissions || {}
 
+  // دالة مساعدة سريعة للتحقق من امتلاك الصلاحية (تدعم مفتاح المسار أو الكلمة المباشرة)
+  const hasAccess = (path: string, key: string) => Boolean(pages[path] || pages[key])
+
   // Clients
-  const clientsLevel = pages[CLIENTS_PAGE]
-  if (levelAtLeast(clientsLevel, 'view')) perms.add(Permission.ClientsRead)
-  if (levelAtLeast(clientsLevel, 'edit')) {
+  if (hasAccess(CLIENTS_PAGE, 'clients')) {
+    perms.add(Permission.ClientsRead)
     perms.add(Permission.ClientsCreate)
     perms.add(Permission.ClientsUpdate)
   }
-  if (levelAtLeast(clientsLevel, 'edit_delete') || isAdmin) perms.add(Permission.ClientsDelete)
+  if (isAdmin) perms.add(Permission.ClientsDelete)
 
   // Orders
-  const ordersLevel = pages[ORDERS_PAGE]
-  if (levelAtLeast(ordersLevel, 'edit')) {
+  if (hasAccess(ORDERS_PAGE, 'orders')) {
     perms.add(Permission.OrdersCreate)
     perms.add(Permission.OrdersUpdate)
   }
-  if (levelAtLeast(ordersLevel, 'edit_delete') || isAdmin) perms.add(Permission.OrdersDelete)
+  if (isAdmin) perms.add(Permission.OrdersDelete)
 
   // Production
-  const productionLevel = pages[PRODUCTION_PAGE]
-  if (levelAtLeast(productionLevel, 'edit')) perms.add(Permission.ProductionUpdate)
-  if (levelAtLeast(productionLevel, 'edit_delete') || isAdmin) perms.add(Permission.ProductionDelete)
+  if (hasAccess(PRODUCTION_PAGE, 'production') || hasAccess(PRODUCTION_PAGE, 'machines')) {
+    perms.add(Permission.ProductionUpdate)
+  }
+  if (isAdmin) perms.add(Permission.ProductionDelete)
 
-  // Employees (the plain workers table — name/phone/job_title/salary, no login)
-  const employeesLevel = pages[EMPLOYEES_PAGE]
-  if (levelAtLeast(employeesLevel, 'view')) perms.add(Permission.EmployeesRead)
-  if (levelAtLeast(employeesLevel, 'edit')) {
+  // Employees
+  if (hasAccess(EMPLOYEES_PAGE, 'employees')) {
+    perms.add(Permission.EmployeesRead)
     perms.add(Permission.EmployeesCreate)
     perms.add(Permission.EmployeesUpdate)
   }
-  if (levelAtLeast(employeesLevel, 'edit_delete') || isAdmin) perms.add(Permission.EmployeesDelete)
+  if (isAdmin) perms.add(Permission.EmployeesDelete)
 
   // Users / permissions management
-  const usersLevel = pages[USERS_PAGE]
-  if (levelAtLeast(usersLevel, 'edit')) {
+  if (hasAccess(USERS_PAGE, 'permissions') || hasAccess(USERS_PAGE, 'users')) {
     perms.add(Permission.UsersCreate)
     perms.add(Permission.UsersUpdate)
   }
-  if (levelAtLeast(usersLevel, 'edit_delete') || isAdmin) perms.add(Permission.UsersDelete)
+  if (isAdmin) perms.add(Permission.UsersDelete)
 
   if (isAdmin) {
     perms.add(Permission.FilesDelete)
