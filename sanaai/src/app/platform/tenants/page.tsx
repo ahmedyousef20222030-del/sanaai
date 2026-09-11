@@ -79,7 +79,6 @@ const SORT_OPTIONS = [
 
 const ROLE_OPTIONS = ['owner', 'employee', 'sales']
 
-// input[type=date] بياخد ويدي بصيغة yyyy-mm-dd، فبنحول من/لـ ISO timestamp
 function toDateInputValue(iso: string | null): string {
   if (!iso) return ''
   return new Date(iso).toISOString().slice(0, 10)
@@ -104,7 +103,7 @@ export default function PlatformTenantsPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [planFilter, setPlanFilter] = useState('all')
-  const [ownerFilter, setOwnerFilter] = useState('all') // all | with_owner | without_owner
+  const [ownerFilter, setOwnerFilter] = useState('all') 
   const [sortBy, setSortBy] = useState('created_desc')
   const [showDeleted, setShowDeleted] = useState(false)
 
@@ -113,7 +112,6 @@ export default function PlatformTenantsPage() {
   const [savingUserId, setSavingUserId] = useState<string | null>(null)
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
 
-  // مودالات
   const [suspendModal, setSuspendModal] = useState<{ tenant: Tenant } | null>(null)
   const [suspendReasonInput, setSuspendReasonInput] = useState('')
   const [notifyModal, setNotifyModal] = useState<{ tenant: Tenant } | null>(null)
@@ -148,7 +146,6 @@ export default function PlatformTenantsPage() {
         setOwners(ownerMap)
       }
 
-      // نجيب كل المستخدمين ببياناتهم الكاملة عشان نعرض الأسماء والإيميلات ونعدل الدور والتفعيل
       const { data: allUsers, error: uErr } = await supabase
         .from('users')
         .select('id, tenant_id, full_name, email, role, is_active')
@@ -260,22 +257,35 @@ export default function PlatformTenantsPage() {
     }
   }
 
+  // 🚀 التعديل الجذري هنا لضمان عمل المعاينة وتخطي الـ Middleware 🚀
   async function handleImpersonate(ownerId: string) {
     if (!confirm('هل تريد الدخول كهذا المستخدم؟ ستنتقل لحسابه فورًا وأي تعديل سيؤثر فعليًا على بياناته.')) return
     setImpersonatingId(ownerId)
     try {
+      // 1. استدعاء دالة المعاينة الأصلية للحصول على التوكن وتسجيل الدخول كعميل
       const { error } = await startImpersonation(ownerId)
       if (error) {
         alert(error)
         return
       }
+
+      // 2. جلب الجلسة الجديدة التي تم إنشاؤها
+      const { data } = await supabase.auth.getSession()
+      
+      // 3. زرع الكوكيز يدوياً في المتصفح لكي يقرأه middleware.ts ويسمح بالمرور
+      if (data?.session) {
+        document.cookie = `sb-access-token=${data.session.access_token}; path=/; max-age=86400;`
+      }
+
+      // 4. التوجيه إلى لوحة التحكم
       router.push('/dashboard')
+    } catch (err: any) {
+      alert(err.message || 'حدث خطأ غير متوقع أثناء المعاينة')
     } finally {
       setImpersonatingId(null)
     }
   }
 
-  // -------------------- إيقاف / تفعيل الشركة --------------------
   function openSuspendModal(t: Tenant) {
     setSuspendReasonInput('')
     setSuspendModal({ tenant: t })
@@ -307,7 +317,6 @@ export default function PlatformTenantsPage() {
     setTenants(prev => prev.map(x => x.id === t.id ? { ...x, suspend_reason: null } : x))
   }
 
-  // -------------------- تمديد الفترة التجريبية --------------------
   async function extendTrial(t: Tenant, days: number) {
     const base = t.trial_ends_at && new Date(t.trial_ends_at) > new Date() ? new Date(t.trial_ends_at) : new Date()
     base.setDate(base.getDate() + days)
@@ -315,7 +324,6 @@ export default function PlatformTenantsPage() {
     await updateTenantField(t.id, 'trial_ends_at', newDate, { action: 'extend_trial', details: { days, new_date: newDate } })
   }
 
-  // -------------------- إشعار --------------------
   function openNotifyModal(t: Tenant) {
     setNotifyTitle('')
     setNotifyMessage('')
@@ -348,7 +356,6 @@ export default function PlatformTenantsPage() {
     }
   }
 
-  // -------------------- حذف / استرجاع --------------------
   function openDeleteModal(t: Tenant) {
     setDeleteConfirmText('')
     setDeleteModal({ tenant: t })
@@ -381,7 +388,6 @@ export default function PlatformTenantsPage() {
     await updateTenantField(t.id, 'deleted_at', null, { action: 'restore' })
   }
 
-  // -------------------- فلترة وترتيب --------------------
   const filtered = useMemo(() => {
     let list = tenants.filter(t => {
       const term = search.trim().toLowerCase()
