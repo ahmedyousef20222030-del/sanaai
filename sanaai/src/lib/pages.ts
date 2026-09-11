@@ -23,7 +23,7 @@ export type PagePermissions = {
   machines?: boolean | PermissionLevel
   quality?: boolean | PermissionLevel
   targets?: boolean | PermissionLevel
-  materials?: boolean | PermissionLevel // 🧵 صلاحية مخزن الخامات
+  materials?: boolean | PermissionLevel 
   inventory?: boolean | PermissionLevel
   suppliers?: boolean | PermissionLevel
   shipping?: boolean | PermissionLevel
@@ -31,10 +31,12 @@ export type PagePermissions = {
   employees?: boolean | PermissionLevel
   branches?: boolean | PermissionLevel
   changelog?: boolean | PermissionLevel
-  bom?: boolean | PermissionLevel               // 🆕 تمت الإضافة
-  inventory_linking?: boolean | PermissionLevel // 🆕 تمت الإضافة
-  procurement?: boolean | PermissionLevel       // 🆕 تمت الإضافة
-  permissions?: boolean | PermissionLevel       // 🆕 تمت الإضافة
+  bom?: boolean | PermissionLevel               
+  inventory_linking?: boolean | PermissionLevel 
+  procurement?: boolean | PermissionLevel       
+  permissions?: boolean | PermissionLevel       
+  embroidery?: boolean | PermissionLevel        // 🪡 تمت الإضافة: قسم التطريز
+  printing?: boolean | PermissionLevel          // 🖨️ تمت الإضافة: قسم الطباعة
   [key: string]: boolean | PermissionLevel | undefined
 }
 
@@ -47,7 +49,7 @@ export type PageKey =
   | '/dashboard/production'
   | '/dashboard/inventory/materials'
   | '/dashboard/quality'
-  | '/dashboard/production/targets' // 🛠️ تم التصحيح ليتطابق مع مجلداتك
+  | '/dashboard/production/targets' 
   | '/dashboard/inventory'
   | '/dashboard/suppliers'
   | '/dashboard/restock-decisions'
@@ -56,10 +58,12 @@ export type PageKey =
   | '/dashboard/employees'
   | '/dashboard/branches'
   | '/dashboard/changelog'
-  | '/dashboard/bom'                // 🆕 تمت الإضافة
-  | '/dashboard/inventory-linking'  // 🆕 تمت الإضافة
-  | '/dashboard/procurement'        // 🆕 تمت الإضافة
-  | '/dashboard/permissions'        // 🆕 تمت الإضافة
+  | '/dashboard/bom'                
+  | '/dashboard/inventory-linking'  
+  | '/dashboard/procurement'        
+  | '/dashboard/permissions'        
+  | '/dashboard/production/embroidery' // 🪡 تمت الإضافة
+  | '/dashboard/production/printing'   // 🖨️ تمت الإضافة
 
 export type PageItem = {
   key: string
@@ -121,6 +125,18 @@ export const PAGE_LIST: PageItem[] = [
     section: 'الإنتاج',
   },
   {
+    key: '/dashboard/production/embroidery', // 🪡 تمت الإضافة
+    label: 'قسم التطريز',
+    icon: '🪡',
+    section: 'الإنتاج',
+  },
+  {
+    key: '/dashboard/production/printing', // 🖨️ تمت الإضافة
+    label: 'قسم الطباعة',
+    icon: '🖨️',
+    section: 'الإنتاج',
+  },
+  {
     key: '/dashboard/inventory/materials',
     label: 'مخزن الخامات',
     icon: '🧵',
@@ -139,7 +155,7 @@ export const PAGE_LIST: PageItem[] = [
     section: 'الإنتاج',
   },
   {
-    key: '/dashboard/production/targets', // 🛠️ تم التصحيح
+    key: '/dashboard/production/targets',
     label: 'تارجت الإنتاج',
     icon: '🎯',
     section: 'الإنتاج',
@@ -231,13 +247,15 @@ const PATH_TO_PERMISSION_KEY: Record<string, keyof PagePermissions> = {
   '/dashboard/complaints': 'complaints',
   '/dashboard/pipeline': 'production',
   '/dashboard/production': 'machines',
+  '/dashboard/production/embroidery': 'embroidery', // 🪡 تمت الإضافة
+  '/dashboard/production/printing': 'printing',     // 🖨️ تمت الإضافة
   '/dashboard/inventory/materials': 'materials',
-  '/dashboard/bom': 'bom', // 🆕
+  '/dashboard/bom': 'bom', 
   '/dashboard/quality': 'quality',
-  '/dashboard/production/targets': 'targets', // 🛠️ تم التصحيح
+  '/dashboard/production/targets': 'targets', 
   '/dashboard/inventory': 'inventory',
-  '/dashboard/inventory-linking': 'inventory_linking', // 🆕
-  '/dashboard/procurement': 'procurement', // 🆕
+  '/dashboard/inventory-linking': 'inventory_linking', 
+  '/dashboard/procurement': 'procurement', 
   '/dashboard/suppliers': 'suppliers',
   '/dashboard/restock-decisions': 'inventory',
   '/dashboard/shipping': 'shipping',
@@ -245,7 +263,7 @@ const PATH_TO_PERMISSION_KEY: Record<string, keyof PagePermissions> = {
   '/dashboard/employees': 'employees',
   '/dashboard/branches': 'branches',
   '/dashboard/changelog': 'changelog',
-  '/dashboard/permissions': 'permissions', // 🆕
+  '/dashboard/permissions': 'permissions', 
 }
 
 // ── التحقق من إمكانية وصول المستخدم للصفحة ──
@@ -260,7 +278,6 @@ export function canAccessPageKey(
   const permKey = PATH_TO_PERMISSION_KEY[pathOrKey] || (pathOrKey as keyof PagePermissions)
   const val = permissions[permKey]
 
-  // ✨ عبقرية التوافقية الرجعية: تدعم القيم المنطقية والنصية معاً
   if (typeof val === 'boolean') return val
   if (typeof val === 'string') return val !== 'none'
 
