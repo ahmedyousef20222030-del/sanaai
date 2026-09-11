@@ -1,10 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import {
-  PAGE_LIST, PageKey, PagePermissions, PermissionLevel,
-  PERMISSION_LEVEL_ORDER, PERMISSION_LEVEL_LABELS,
-} from '@/lib/pages'
+import { PAGE_LIST, PagePermissions } from '@/lib/pages'
 
 // ── تعريف الأدوار (متطابقة مع users_role_check في قاعدة البيانات) ──
 const roles: Record<string, string> = {
@@ -45,18 +42,18 @@ const ROLE_DEFAULT_PERMISSIONS: Record<string, Record<PermissionKey, boolean>> =
   employee:   { can_edit_production: false, can_edit_orders: false, can_manage_sales: false, can_manage_users: false, can_view_clients: false },
 }
 
-function pagesToPermissions(keys: PageKey[], level: PermissionLevel = 'edit_delete'): PagePermissions {
+function pagesToPermissions(keys: string[]): PagePermissions {
   const map: PagePermissions = {}
-  for (const k of keys) map[k] = level
+  for (const k of keys) map[k] = true
   return map
 }
 
-const ROLE_DEFAULT_PAGES: Record<string, PageKey[]> = {
+const ROLE_DEFAULT_PAGES: Record<string, string[]> = {
   owner:      PAGE_LIST.map(p => p.key),
   admin:      PAGE_LIST.map(p => p.key),
   sales:      ['/dashboard/orders', '/dashboard/clients', '/dashboard/pipeline', '/dashboard/showroom', '/dashboard/invoices'],
-  production: ['/dashboard/production', '/dashboard/production/embroidery', '/dashboard/production/printing', '/dashboard/quality', '/dashboard/inventory', '/dashboard/branches', '/dashboard/suppliers', '/dashboard/procurement'],
-  design:     ['/dashboard/production', '/dashboard/production/embroidery', '/dashboard/production/printing', '/dashboard/quality'],
+  production: ['/dashboard/production', '/dashboard/inventory/materials', '/dashboard/quality', '/dashboard/inventory', '/dashboard/branches', '/dashboard/suppliers', '/dashboard/restock-decisions'],
+  design:     ['/dashboard/production', '/dashboard/quality'],
   shipping:   ['/dashboard/orders', '/dashboard/shipping', '/dashboard/clients'],
   hr:         ['/dashboard/employees'],
   accountant: ['/dashboard/invoices', '/dashboard/clients'],
@@ -82,7 +79,7 @@ type Employee = {
   phone: string
   role: string
   salary: number
-  user_id?: string | null // 🔹 مضاف للترابط
+  user_id?: string | null
 }
 
 type AppUser = {
@@ -112,22 +109,11 @@ type ActivityLogEntry = {
 
 async function getMyTenantId(): Promise<string> {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
-    throw new Error('تعذر التحقق من هوية المستخدم، برجاء تسجيل الدخول مرة أخرى')
-  }
+  if (authError || !user) throw new Error('تعذر التحقق من هوية المستخدم، برجاء تسجيل الدخول مرة أخرى')
 
-  const { data: me, error: meError } = await supabase
-    .from('users')
-    .select('tenant_id')
-    .eq('id', user.id)
-    .single()
-
-  if (meError) {
-    throw new Error(`تعذر تحديد هوية الشركة: ${meError.message}`)
-  }
-  if (!me?.tenant_id) {
-    throw new Error('تعذر تحديد هوية الشركة: لا يوجد tenant_id مرتبط بهذا المستخدم')
-  }
+  const { data: me, error: meError } = await supabase.from('users').select('tenant_id').eq('id', user.id).single()
+  if (meError) throw new Error(`تعذر تحديد هوية الشركة: ${meError.message}`)
+  if (!me?.tenant_id) throw new Error('تعذر تحديد هوية الشركة: لا يوجد tenant_id مرتبط بهذا المستخدم')
 
   return me.tenant_id
 }
@@ -148,9 +134,7 @@ async function logUserActivity(action: string, entityLabel: string, oldValue: an
       old_value: oldValue,
       new_value: newValue,
     })
-  } catch {
-    // تسجيل النشاط عملية ثانوية؛ فشلها ما ينفعش يوقف العملية الأساسية
-  }
+  } catch {}
 }
 
 export default function PermissionsPage() {
@@ -233,7 +217,6 @@ export default function PermissionsPage() {
     return matchSearch && matchRole
   })
 
-  // 🔹 دوال الربط الذكي الجديدة
   async function linkEmployeeToUser(employeeId: string, user: AppUser) {
     if (!isOwner || !employeeId) return
     setSavingRole(user.id)
@@ -255,7 +238,6 @@ export default function PermissionsPage() {
       logUserActivity('فك ربط إداري', user.full_name, null, 'تم فصل الربط')
     } catch (err: any) { alert('تعذر الفصل: ' + err.message) } finally { setSavingRole(null) }
   }
-  // 🔹 نهاية دوال الربط الذكي
 
   async function toggleActive(user: AppUser) {
     if (!isOwner) return
@@ -317,17 +299,17 @@ export default function PermissionsPage() {
       setAppUsers(prev => prev.map(u => u.id === id ? { ...u, [key]: value } : u))
       if (prevUser) logUserActivity('تغيير صلاحية', prevUser.full_name, { [key]: prevUser[key] }, { [key]: value }).then(loadActivityLog)
     } catch (err: any) {
-      alert('تعذر تغيير الصلاحية: ' + err.message + '\nملحوظة: تغيير الصلاحيات مسموح به فقط لصاحب الحساب (owner).')
+      alert('تعذر تغيير الصلاحية: ' + err.message)
     } finally {
       setSavingRole(null)
     }
   }
 
-  async function updatePagePermission(user: AppUser, pageKey: PageKey, level: PermissionLevel | null) {
+  async function updatePagePermission(user: AppUser, pageKey: string, hasAccess: boolean) {
     if (!isOwner) return
     const current = user.page_permissions || {}
     const next: PagePermissions = { ...current }
-    if (level) next[pageKey] = level
+    if (hasAccess) next[pageKey] = true
     else delete next[pageKey]
 
     setSavingRole(user.id)
@@ -343,15 +325,15 @@ export default function PermissionsPage() {
     }
   }
 
-  async function setAllPages(user: AppUser, level: PermissionLevel | null) {
+  async function setAllPages(user: AppUser, hasAccess: boolean) {
     if (!isOwner) return
-    const next: PagePermissions = level ? Object.fromEntries(PAGE_LIST.map(p => [p.key, level])) : {}
+    const next: PagePermissions = hasAccess ? Object.fromEntries(PAGE_LIST.map(p => [p.key, true])) : {}
     setSavingRole(user.id)
     try {
       const { error } = await supabase.from('users').update({ page_permissions: next }).eq('id', user.id)
       if (error) throw error
       setAppUsers(prev => prev.map(u => u.id === user.id ? { ...u, page_permissions: next } : u))
-      logUserActivity(level ? 'منح كل الصفحات' : 'إلغاء كل الصفحات', user.full_name, { page_permissions: user.page_permissions }, { page_permissions: next }).then(loadActivityLog)
+      logUserActivity(hasAccess ? 'منح كل الصفحات' : 'إلغاء كل الصفحات', user.full_name, { page_permissions: user.page_permissions }, { page_permissions: next }).then(loadActivityLog)
     } catch (err: any) {
       alert('تعذر تعديل الصفحات: ' + err.message)
     } finally {
@@ -669,7 +651,7 @@ export default function PermissionsPage() {
 
                   <div className="h-px bg-white/5 mb-4" />
 
-                  {/* 🔹 الإضافة الجديدة: الربط الإداري بملف الموظف */}
+                  {/* 🔹 الربط الإداري بملف الموظف */}
                   <div className="bg-black/20 p-3 rounded-xl border border-white/5 mb-4 flex items-center justify-between">
                     <div>
                       <p className="text-xs text-gray-400 font-bold mb-1">🔗 الربط الإداري بملف الموظف (HR Link)</p>
@@ -717,18 +699,18 @@ export default function PermissionsPage() {
                     ))}
                   </div>
 
-                  {/* ── مستوى الصلاحية لكل صفحة (قراءة فقط / تعديل / تعديل وحذف) ── */}
+                  {/* ── مستوى الصلاحية لكل صفحة (تفعيل / تعطيل فقط) ── */}
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-[11px] text-gray-600 font-semibold">📄 صلاحية كل صفحة</p>
+                    <p className="text-[11px] text-gray-600 font-semibold">📄 صلاحية دخول الصفحات</p>
                     {isOwner && u.role !== 'owner' && (
                       <div className="flex gap-3">
-                        <button onClick={() => setAllPages(u, 'edit_delete')} disabled={savingRole === u.id} className="text-[11px] text-sky-400 hover:underline disabled:opacity-50">منح الكل (تعديل وحذف)</button>
-                        <button onClick={() => setAllPages(u, null)} disabled={savingRole === u.id} className="text-[11px] text-gray-500 hover:underline disabled:opacity-50">إلغاء الكل</button>
+                        <button onClick={() => setAllPages(u, true)} disabled={savingRole === u.id} className="text-[11px] text-sky-400 hover:underline disabled:opacity-50">تفعيل الكل</button>
+                        <button onClick={() => setAllPages(u, false)} disabled={savingRole === u.id} className="text-[11px] text-gray-500 hover:underline disabled:opacity-50">إلغاء الكل</button>
                       </div>
                     )}
                   </div>
                   {u.role === 'owner' ? (
-                    <p className="text-[11px] text-gray-600">صاحب الحساب يشوف كل الصفحات بأعلى صلاحية دايمًا، مفيش داعي لتحديدها.</p>
+                    <p className="text-[11px] text-gray-600">صاحب الحساب له صلاحية الدخول لكل الصفحات تلقائياً، مفيش داعي لتحديدها.</p>
                   ) : (
                     <div className="space-y-3">
                       {PAGE_SECTIONS.map(({ section, pages }) => (
@@ -736,26 +718,25 @@ export default function PermissionsPage() {
                           <p className="text-[10px] text-gray-500 font-bold mb-1.5 tracking-wide">{section}</p>
                           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                             {pages.map(page => {
-                              const level = u.page_permissions?.[page.key] ?? null
+                              const hasAccess = !!u.page_permissions?.[page.key]
                               return (
                                 <div
                                   key={page.key}
                                   className={`flex items-center justify-between gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border transition ${
-                                    level ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
+                                    hasAccess ? 'bg-sky-500/10 border-sky-500/30 text-sky-400' : 'bg-white/5 border-white/10 text-gray-500'
                                   } ${savingRole === u.id ? 'opacity-50 pointer-events-none' : ''}`}
                                 >
                                   <span className="truncate">{page.icon} {page.label}</span>
-                                  <select
-                                    value={level ?? ''}
-                                    disabled={!isOwner}
-                                    onChange={e => isOwner && updatePagePermission(u, page.key, (e.target.value || null) as PermissionLevel | null)}
-                                    className="bg-[#0D1B2A] border border-white/10 rounded px-1 py-0.5 text-[10px] text-white focus:outline-none focus:border-sky-500/50 disabled:opacity-60"
-                                  >
-                                    <option value="">بدون</option>
-                                    {PERMISSION_LEVEL_ORDER.map(lvl => (
-                                      <option key={lvl} value={lvl}>{PERMISSION_LEVEL_LABELS[lvl]}</option>
-                                    ))}
-                                  </select>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={hasAccess}
+                                      disabled={!isOwner}
+                                      onChange={e => isOwner && updatePagePermission(u, page.key, e.target.checked)}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-7 h-4 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-gray-300 after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500"></div>
+                                  </label>
                                 </div>
                               )
                             })}
@@ -774,7 +755,7 @@ export default function PermissionsPage() {
           )}
           <p className="text-xs text-gray-600 mt-3">
             {isOwner
-              ? '💡 "صلاحيات الأفعال" (تحت) بتتحكم في أفعال محددة على مستوى النظام كله، و"صلاحية كل صفحة" بتتحكم في أنهي صفحات تظهر للمستخدم في القائمة الجانبية وبأنهي مستوى (قراءة فقط / تعديل / تعديل وحذف). زر "تطبيق الإعدادات الافتراضية للدور" يستبدل الاتنين دفعة واحدة بالقيم المقترحة لدوره الحالي، ويمكنك بعدها تعديل أي بند بشكل فردي.'
+              ? '💡 زر التفعيل/التعطيل يمنح الموظف حق رؤية الصفحة واستخدامها. الحذف النهائي للبيانات يظل محصوراً في المالك أو المدير فقط للأمان.'
               : '💡 الأدوار والصلاحيات المعروضة هنا للقراءة فقط، ويتم تعديلها من صاحب الحساب (owner) فقط.'}
           </p>
 
