@@ -15,7 +15,7 @@ export default function LandingPage() {
   const [signup, setSignup] = useState({ factory: '', name: '', email: '', password: '' })
   const [login, setLogin] = useState({ email: '', password: '' })
   
-  // ── عداد المصانع (الميزة التفاعلية) ──
+  // ── عداد المصانع (الميزة التفاعلية لنادي المؤسسين) ──
   const [registeredFactories, setRegisteredFactories] = useState(143)
   const TARGET_FACTORIES = 200
   const progressPercentage = Math.min((registeredFactories / TARGET_FACTORIES) * 100, 100)
@@ -58,8 +58,8 @@ export default function LandingPage() {
   }
 
   const prices = {
-    monthly: { starter: '2000', pro: '4000', ent: '8000', label: 'شهرياً' },
-    yearly:  { starter: '20000', pro: '40000', ent: '80000', label: 'شهرياً (يُدفع سنوياً)' },
+    monthly: { starter: '2000', ent: '4000', label: 'شهرياً' },
+    yearly:  { starter: '20000', ent: '40000', label: 'يُدفع سنوياً' },
   }
   const p = prices[billing]
 
@@ -87,8 +87,8 @@ export default function LandingPage() {
           <button onClick={() => { setTab('login'); setModal('login') }} className="px-3 py-1.5 md:px-5 md:py-2 text-xs md:text-sm font-bold border border-white/15 rounded-xl hover:bg-white/5 transition">
             دخول
           </button>
-          <button onClick={() => { setTab('signup'); setModal('signup') }} className="px-4 py-1.5 md:px-6 md:py-2 text-xs md:text-sm font-bold bg-[#C8963E] text-black rounded-xl hover:bg-[#D4A843] transition">
-            ابدأ مجاناً
+          <button onClick={() => { setTab('signup'); setModal('signup') }} className="px-4 py-1.5 md:px-6 md:py-2 text-xs md:text-sm font-bold bg-[#C8963E] text-black rounded-xl hover:bg-[#D4A843] transition shadow-lg shadow-[#C8963E]/20">
+            ابدأ ٧ أيام مجاناً
           </button>
         </div>
       </nav>
@@ -112,21 +112,21 @@ export default function LandingPage() {
           
           <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-10">
             <button onClick={() => { setTab('signup'); setModal('signup') }} className="w-full sm:w-auto px-8 py-4 bg-[#C8963E] text-black font-black rounded-2xl hover:bg-[#D4A843] transition shadow-lg shadow-[#C8963E]/20 text-sm md:text-base">
-              🚀 ابدأ مجاناً ١٤ يوم
+              🚀 ابدأ ٧ أيام مجاناً
             </button>
             <a href="#features" className="w-full sm:w-auto px-8 py-4 border border-white/15 text-white font-bold rounded-2xl hover:bg-white/5 transition flex items-center justify-center gap-2 text-sm md:text-base">
               ← شوف الميزات
             </a>
           </div>
 
-          {/* ── عداد المصانع (الميزة الجديدة) ── */}
+          {/* ── عداد المصانع ── */}
           <div className="bg-[#111927] border border-[#C8963E]/20 rounded-2xl p-5 md:p-6 shadow-2xl relative overflow-hidden text-right max-w-lg mx-auto lg:mx-0">
             <div className="absolute top-0 right-0 w-full h-1 bg-white/5">
               <div className="h-full bg-[#C8963E] transition-all duration-1000" style={{ width: `${progressPercentage}%` }} />
             </div>
             
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm md:text-base font-bold text-white">🚀 رحلة الانطلاق نحو ٢٠٠ مصنع</h3>
+              <h3 className="text-sm md:text-base font-bold text-white">🚀 انضم لـ ٢٠٠ مصنع شركاء نجاح أول مرحلة</h3>
               <span className="text-2xl font-black text-[#C8963E]">{registeredFactories}</span>
             </div>
             
@@ -136,7 +136,7 @@ export default function LandingPage() {
               </div>
             </div>
             <p className="text-[11px] md:text-xs text-[#7A8A9E] font-bold">
-              ⚡ سارع بالتسجيل قبل اكتمال العدد المتاح للإصدار التجريبي المجاني!
+              ⚡ احصل على خصم ٤٠٪ شهري أو ٦٠٪ سنوي.. <span className="text-[#C8963E]">والسعر يثبت لمدة ٥ سنين!</span>
             </p>
           </div>
         </div>
@@ -222,58 +222,105 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Pricing ── */}
+      {/* ── Pricing (Updated 2 Plans) ── */}
       <section id="pricing" className="px-6 py-16 md:py-24 bg-[#0D1B2A] border-y border-white/5">
-        <div className="max-w-[1100px] mx-auto">
+        <div className="max-w-[1000px] mx-auto">
           <div className="text-center mb-16">
             <div className="text-[#C8963E] text-sm font-bold mb-3">💰 الأسعار</div>
-            <h2 className="text-3xl md:text-4xl font-black mb-8" style={{ fontFamily: "'Tajawal', sans-serif" }}>ابدأ مجاناً، ادفع لما تنمو</h2>
-            <div className="inline-flex bg-[#172030] p-1.5 rounded-2xl border border-white/5">
-              {(['monthly', 'yearly'] as const).map(b => (
-                <button key={b} onClick={() => setBilling(b)} className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${billing === b ? 'bg-[#C8963E] text-black' : 'text-[#7A8A9E] hover:text-white'}`}>
-                  {b === 'monthly' ? 'شهري' : 'سنوي (وفر ٢٠٪)'}
-                </button>
-              ))}
+            <h2 className="text-3xl md:text-5xl font-black mb-6 leading-tight" style={{ fontFamily: "'Tajawal', sans-serif" }}>
+              ابدأ مجاناً.. وادفع على قد حجم مصنعك!
+            </h2>
+            <p className="text-base md:text-lg text-[#EEF0F6] mb-4 max-w-2xl mx-auto">
+              كل مميزات "صَنَاعي" الجبارة مفتوحة ليك بالكامل، مفيش أي ميزة مقفولة. اختار باقتك بناءً على حجم فريقك وعدد فروعك بس!
+            </p>
+            <p className="text-sm md:text-base text-[#C8963E] font-bold mb-8 bg-[#C8963E]/10 py-3 px-6 rounded-2xl inline-block border border-[#C8963E]/20">
+              🔥 كن من الـ ٢٠٠ مصنع (شركاء نجاح المرحلة الأولى) واستفاد بخصم ٤٠٪ للشهري و٦٠٪ للسنوي.. مع تثبيت سعرك لمدة ٥ سنين!
+            </p>
+            
+            <div className="flex justify-center mb-4">
+              <div className="inline-flex bg-[#172030] p-1.5 rounded-2xl border border-white/5 shadow-inner">
+                {(['monthly', 'yearly'] as const).map(b => (
+                  <button key={b} onClick={() => setBilling(b)} className={`px-8 py-3 rounded-xl text-sm font-bold transition-all ${billing === b ? 'bg-[#C8963E] text-black shadow-md' : 'text-[#7A8A9E] hover:text-white'}`}>
+                    {b === 'monthly' ? 'الاشتراك الشهري' : 'الاشتراك السنوي'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
             {[
-              { name: 'Starter', price: p.starter, users: '٥', featured: false, 
-                features: ['إدارة الطلبات الكاملة', 'متابعة الإنتاج', 'فحص الجودة', 'الشحن والتسليم', '٥ مستخدمين'], 
-                dim: ['تقارير PDF', 'API Access', 'دعم أولوية'] },
-              { name: 'Professional', price: p.pro, users: '١٥', featured: true, 
-                features: ['كل مميزات Starter', 'تقارير PDF تلقائية', 'لوحة تحكم متقدمة', 'إشعارات واتساب', '١٥ مستخدم', 'أداء الموظفين', 'نسخ احتياطي يومي'], 
-                dim: ['API Access'] },
-              { name: 'Enterprise', price: p.ent, users: '∞', featured: false, 
-                features: ['كل مميزات Professional', 'مستخدمين غير محدود', 'API كامل', 'تخصيص كامل', 'مدير حساب مخصص', 'دعم ٢٤/٧', 'SLA ٩٩.٩٪'], 
-                dim: [] },
+              { 
+                name: 'الباقة الأولى: الأساسية (Starter)', 
+                subtitle: 'مثالية للورش والمصانع اللي بتدور على التنظيم والتحول الرقمي',
+                price: p.starter, 
+                users: '١٠', 
+                scope: 'فرع / مصنع واحد',
+                featured: false, 
+                features: [
+                  'إدارة الطلبات: من الاستلام للتسليم مع فواتير أوتوماتيكية.', 
+                  'خط الإنتاج المرئي: (Kanban Board) وتتبع العمال.', 
+                  'التحكم في المخازن: معادلة التصنيع (BOM) والخصم الآلي للخامات.', 
+                  'الجودة والشحن: فحص المنتجات وطباعة بوالص الشحن.', 
+                  'تقارير وإحصائيات: لوحة تحكم كاملة لإيراداتك وتارجت الإنتاج.',
+                  'دعم فني قياسي (شات وإيميل).'
+                ]
+              },
+              { 
+                name: 'الباقة الثانية: الشركات (Enterprise)', 
+                subtitle: 'مثالية للمصانع الكبيرة اللي بتدير أكتر من عنبر إنتاج أو معرض بيع',
+                price: p.ent, 
+                users: '٣٠', 
+                scope: 'فروع متعددة (مصانع، مخازن خارجية، معارض)',
+                featured: true, 
+                features: [
+                  'كل مميزات الباقة الأساسية بالكامل ➕', 
+                  'إدارة الفروع المتعددة: راقب كل فروعك ومعارضك من شاشة واحدة.', 
+                  'تقارير مجمعة: قارن أداء ومبيعات وتارجت كل فرع لوحده.', 
+                  'صلاحيات متقدمة جداً: تحكم دقيق في اللي يشوفه كل موظف بين الفروع.', 
+                  'ربط API كامل: لو حابب تربط صَنَاعي بأي سيستم تاني عندك.', 
+                  'مدير حساب مخصص: بيتابع معاك ويدرب فريقك.', 
+                  'دعم فني أولوية VIP (٢٤/٧).'
+                ]
+              },
             ].map(plan => (
-              <div key={plan.name} className={`rounded-3xl p-8 flex flex-col relative transition-transform ${plan.featured ? 'bg-[#C8963E]/5 border border-[#C8963E]/40 transform lg:-translate-y-4 shadow-2xl shadow-[#C8963E]/10' : 'bg-[#111927] border border-white/5'}`}>
+              <div key={plan.name} className={`rounded-3xl p-8 md:p-10 flex flex-col relative transition-transform ${plan.featured ? 'bg-[#C8963E]/5 border-2 border-[#C8963E]/40 transform md:-translate-y-4 shadow-2xl shadow-[#C8963E]/10' : 'bg-[#111927] border border-white/5'}`}>
                 {plan.featured && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[#C8963E] text-black px-4 py-1 rounded-full text-xs font-black shadow-lg shadow-[#C8963E]/20">⭐ الأكثر طلباً</div>
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-[#C8963E] text-black px-6 py-1.5 rounded-full text-xs md:text-sm font-black shadow-lg shadow-[#C8963E]/20">⭐️ الأكثر طلباً</div>
                 )}
-                <div className={`text-lg font-bold mb-2 ${plan.featured ? 'text-[#C8963E]' : 'text-white'}`}>{plan.name}</div>
+                
+                <div className={`text-xl font-black mb-2 ${plan.featured ? 'text-[#C8963E]' : 'text-white'}`}>{plan.name}</div>
+                <div className="text-xs md:text-sm text-[#7A8A9E] mb-6 font-medium leading-relaxed min-h-[40px]">{plan.subtitle}</div>
+                
                 <div className="text-4xl md:text-5xl font-black mb-2" style={{ fontFamily: "'Tajawal', sans-serif" }}>
                   <span className="text-lg text-gray-400 font-medium">ج.م</span> {plan.price}
                 </div>
-                <div className="text-xs text-[#7A8A9E] font-bold mb-6 pb-6 border-b border-white/5">
-                  {p.label} · حتى {plan.users} مستخدمين
+                <div className="text-sm text-[#7A8A9E] font-bold mb-4">
+                  {p.label}
                 </div>
+
+                <div className="bg-[#080C12] border border-white/5 rounded-xl p-4 mb-8">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs text-[#7A8A9E] font-bold">المستخدمين:</span>
+                    <span className="text-sm text-white font-bold">حتى {plan.users} مستخدمين</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-[#7A8A9E] font-bold">حجم العمل:</span>
+                    <span className="text-sm text-[#C8963E] font-bold">{plan.scope}</span>
+                  </div>
+                </div>
+
+                <div className="text-sm font-bold text-white mb-4">المميزات (كل السيستم مفتوح):</div>
                 <ul className="flex-1 space-y-4 mb-8">
-                  {plan.features.map(f => (
-                    <li key={f} className="flex items-center gap-3 text-sm font-medium text-[#EEF0F6]">
-                      <span className="text-[#2ECC71]">✓</span> {f}
-                    </li>
-                  ))}
-                  {plan.dim.map(f => (
-                    <li key={f} className="flex items-center gap-3 text-sm font-medium text-[#3A4A5E]">
-                      <span>✓</span> {f}
+                  {plan.features.map((f, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm font-medium text-[#EEF0F6] leading-relaxed">
+                      <span className="text-[#2ECC71] mt-0.5 font-bold">✓</span> {f}
                     </li>
                   ))}
                 </ul>
-                <button onClick={() => { setTab('signup'); setModal('signup') }} className={`w-full py-4 rounded-xl font-bold transition-all text-sm ${plan.featured ? 'bg-[#C8963E] text-black hover:bg-[#D4A843] shadow-lg shadow-[#C8963E]/20' : 'border border-white/15 text-white hover:bg-white/5'}`}>
-                  {plan.name === 'Enterprise' ? 'تواصل معنا' : 'ابدأ مجاناً ←'}
+                
+                <button onClick={() => { setTab('signup'); setModal('signup') }} className={`w-full py-4 rounded-xl font-black transition-all text-sm md:text-base ${plan.featured ? 'bg-[#C8963E] text-black hover:bg-[#D4A843] shadow-xl shadow-[#C8963E]/20' : 'border border-[#C8963E]/30 text-[#C8963E] hover:bg-[#C8963E]/10'}`}>
+                  🚀 ابدأ ٧ أيام مجاناً ←
                 </button>
               </div>
             ))}
@@ -319,7 +366,7 @@ export default function LandingPage() {
             {[
               { q: 'هل أحتاج خبرة تقنية؟', a: 'لا على الإطلاق. صَنَاعي مصمم للمصنعيين. الواجهة بالعربي بالكامل وبسيطة جداً.' },
               { q: 'هل بياناتي آمنة؟', a: 'نعم. كل مصنع له بيانات معزولة تماماً. نستخدم تشفير SSL وقواعد بيانات Supabase المؤمنة.' },
-              { q: 'إيه اللي بيحصل بعد التجربة المجانية؟', a: 'هنبعتلك تذكير قبل الانتهاء بـ٣ أيام. مفيش أي رسوم تلقائية بدون موافقتك.' },
+              { q: 'إيه اللي بيحصل بعد الـ ٧ أيام المجانية؟', a: 'هنبعتلك تذكير قبل الانتهاء. مفيش أي رسوم تلقائية هتتخصم بدون موافقتك الصريحة.' },
               { q: 'هل يشتغل على الموبايل؟', a: 'نعم. الداشبورد متجاوب ويشتغل على أي موبايل أو تابلت.' },
               { q: 'هل أقدر أنقل بياناتي؟', a: 'بالطبع. تقدر تصدّر كل شيء بصيغة Excel أو CSV بضغطة زر.' },
             ].map((f, i) => (
@@ -341,13 +388,13 @@ export default function LandingPage() {
         <h2 className="text-4xl md:text-5xl font-black mb-6" style={{ fontFamily: "'Tajawal', sans-serif" }}>
           مصنعك يستحق <span className="text-[#C8963E]">نظاماً حقيقياً</span>
         </h2>
-        <p className="text-[#7A8A9E] text-base md:text-lg mb-10 max-w-xl mx-auto">
-          انضم ل ٢٠٠ مصنع شركاء نجاج اول مرحلة . ابدأ التجربة المجانية — لا يلزم بطاقة ائتمان.
+        <p className="text-[#7A8A9E] text-base md:text-lg mb-10 max-w-2xl mx-auto leading-relaxed">
+          انضم لـ ٢٠٠ مصنع شركاء نجاح أول مرحلة واستفد من تثبيت السعر لمدة ٥ سنين. ابدأ التجربة المجانية لمدة ٧ أيام — لا يلزم بطاقة ائتمان.
         </p>
         <button onClick={() => { setTab('signup'); setModal('signup') }} className="px-10 py-5 bg-[#C8963E] text-black font-black rounded-2xl hover:bg-[#D4A843] transition shadow-2xl shadow-[#C8963E]/20 text-base md:text-lg">
-          🚀 ابدأ مجاناً الآن ←
+          🚀 ابدأ ٧ أيام مجاناً ←
         </button>
-        <p className="mt-6 text-xs font-bold text-[#7A8A9E]">7 أيام مجاناً · بدون بطاقة · إلغاء في أي وقت</p>
+        <p className="mt-6 text-xs font-bold text-[#7A8A9E]">٧ أيام مجاناً · بدون بطاقة ائتمان · إلغاء في أي وقت</p>
       </section>
 
       {/* ── Footer ── */}
@@ -397,7 +444,7 @@ export default function LandingPage() {
                   <input type="password" placeholder="كلمة المرور (٨ أحرف+) *" value={signup.password} onChange={e => setSignup({...signup, password: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
                 </div>
                 <button onClick={handleSignup} disabled={loading} className="w-full py-4 mt-2 bg-[#C8963E] text-black font-bold rounded-xl hover:bg-[#D4A843] transition disabled:opacity-50">
-                  {loading ? 'جاري الإنشاء...' : '🚀 ابدأ مجاناً ١٤ يوم'}
+                  {loading ? 'جاري الإنشاء...' : '🚀 ابدأ ٧ أيام مجاناً'}
                 </button>
                 <p className="text-[11px] text-[#7A8A9E] text-center font-bold mt-2">بدون بطاقة ائتمان · إلغاء في أي وقت</p>
               </div>
