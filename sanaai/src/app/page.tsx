@@ -1,21 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function LandingPage() {
   const router = useRouter()
-  const [modal, setModal]       = useState<'signup' | 'login' | null>(null)
-  const [tab, setTab]           = useState<'signup' | 'login'>('signup')
-  const [loading, setLoading]   = useState(false)
-  const [toast, setToast]       = useState<{ msg: string; type: string } | null>(null)
-  const [billing, setBilling]   = useState<'monthly' | 'yearly'>('monthly')
+  const [modal, setModal] = useState<'signup' | 'login' | null>(null)
+  const [tab, setTab] = useState<'signup' | 'login'>('signup')
+  const [loading, setLoading] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'error' | 'info' } | null>(null)
+  const [billing, setBilling] = useState<'monthly' | 'yearly'>('monthly')
 
   const [signup, setSignup] = useState({ factory: '', name: '', email: '', password: '' })
-  const [login, setLogin]   = useState({ email: '', password: '' })
+  const [login, setLogin] = useState({ email: '', password: '' })
+  
+  // ── عداد المصانع (الميزة التفاعلية) ──
+  const [registeredFactories, setRegisteredFactories] = useState(143)
+  const TARGET_FACTORIES = 200
+  const progressPercentage = Math.min((registeredFactories / TARGET_FACTORIES) * 100, 100)
 
-  function showToast(msg: string, type = 'success') {
+  function showToast(msg: string, type: 'success' | 'warning' | 'error' | 'info' = 'success') {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
   }
@@ -24,12 +29,14 @@ export default function LandingPage() {
     const { factory, name, email, password } = signup
     if (!factory || !name || !email || !password) { showToast('⚠️ يرجى إدخال جميع البيانات', 'warning'); return }
     if (password.length < 8) { showToast('⚠️ كلمة المرور ٨ أحرف على الأقل', 'warning'); return }
+    
     setLoading(true)
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email, password,
       options: { data: { full_name: name, factory_name: factory } }
     })
     if (authError) { showToast('❌ ' + authError.message, 'error'); setLoading(false); return }
+    
     showToast(`✅ أهلاً ${name}! تم إنشاء حساب ${factory} بنجاح`, 'success')
     setModal(null)
     setTimeout(() => router.push('/dashboard'), 1500)
@@ -39,9 +46,11 @@ export default function LandingPage() {
   async function handleLogin() {
     const { email, password } = login
     if (!email || !password) { showToast('⚠️ أدخل البريد وكلمة المرور', 'warning'); return }
+    
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { showToast('❌ البريد أو كلمة المرور غير صحيحة', 'error'); setLoading(false); return }
+    
     showToast('✅ مرحباً بعودتك!', 'success')
     setModal(null)
     setTimeout(() => router.push('/dashboard'), 800)
@@ -54,247 +63,148 @@ export default function LandingPage() {
   }
   const p = prices[billing]
 
-  const toastColors: Record<string, string> = {
-    success: '#1B7A6E', warning: '#C8963E', error: '#C24B2A', info: '#3498DB'
+  const toastStyles = {
+    success: 'bg-[#111927] border-[#1B7A6E] text-[#1B7A6E]',
+    warning: 'bg-[#111927] border-[#C8963E] text-[#C8963E]',
+    error: 'bg-[#111927] border-[#C24B2A] text-[#C24B2A]',
+    info: 'bg-[#111927] border-[#3498DB] text-[#3498DB]',
   }
 
   return (
-    <div dir="rtl" style={{ fontFamily: "'Cairo', sans-serif", background: '#080C12', color: '#EEF0F6', minHeight: '100vh' }}>
-
-      {/* Toast */}
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-          background: '#111927', border: `1px solid ${toastColors[toast.type] || '#1B7A6E'}`,
-          padding: '14px 24px', borderRadius: 14, zIndex: 9999, fontSize: 14, fontWeight: 600,
-          whiteSpace: 'nowrap', boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
-        }}>
-          {toast.msg}
+    <div dir="rtl" className="min-h-screen bg-[#080C12] text-[#EEF0F6] font-sans selection:bg-[#C8963E]/30 overflow-x-hidden" style={{ fontFamily: "'Cairo', sans-serif" }}>
+      
+      {/* ── Navbar ── */}
+      <nav className="sticky top-0 z-50 flex items-center justify-between px-6 py-4 md:px-12 lg:px-20 bg-[#080C12]/90 backdrop-blur-xl border-b border-[#C8963E]/15">
+        <div className="text-xl md:text-2xl font-black text-[#C8963E] tracking-tight">
+          🏭 صَنَا<span className="text-[#EEF0F6]">عي</span>
         </div>
-      )}
-
-      {/* Modal */}
-      {modal && (
-        <div onClick={() => setModal(null)} style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
-        }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: '#0D1B2A', border: '1px solid rgba(200,150,62,0.2)',
-            borderRadius: 24, padding: 40, width: '100%', maxWidth: 420
-          }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 32 }}>
-              {(['signup', 'login'] as const).map(t => (
-                <button key={t} onClick={() => setTab(t)} style={{
-                  flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
-                  background: tab === t ? '#C8963E' : 'rgba(255,255,255,0.05)',
-                  color: tab === t ? '#000' : '#7A8A9E', fontWeight: 700, fontSize: 14,
-                  fontFamily: "'Cairo', sans-serif"
-                }}>
-                  {t === 'signup' ? 'إنشاء حساب' : 'تسجيل دخول'}
-                </button>
-              ))}
-            </div>
-
-            {tab === 'signup' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <h2 style={{ margin: '0 0 8px', fontSize: 20, color: '#EEF0F6' }}>ابدأ تجربتك المجانية</h2>
-                {[
-                  { key: 'factory', placeholder: 'اسم المصنع / الورشة *' },
-                  { key: 'name', placeholder: 'اسمك الكامل *' },
-                  { key: 'email', placeholder: 'البريد الإلكتروني *', type: 'email' },
-                  { key: 'password', placeholder: 'كلمة المرور (٨ أحرف+) *', type: 'password' },
-                ].map(f => (
-                  <input key={f.key} type={f.type || 'text'} placeholder={f.placeholder}
-                    value={(signup as any)[f.key]}
-                    onChange={e => setSignup(s => ({ ...s, [f.key]: e.target.value }))}
-                    style={{
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: 10, padding: '12px 16px', color: '#EEF0F6', fontSize: 14,
-                      fontFamily: "'Cairo', sans-serif", outline: 'none', textAlign: 'right'
-                    }} />
-                ))}
-                <button onClick={handleSignup} disabled={loading} style={{
-                  marginTop: 8, padding: '14px 0', background: loading ? '#666' : '#C8963E',
-                  border: 'none', borderRadius: 12, color: '#000', fontWeight: 700, fontSize: 15,
-                  cursor: loading ? 'not-allowed' : 'pointer', fontFamily: "'Cairo', sans-serif"
-                }}>
-                  {loading ? 'جاري الإنشاء...' : '🚀 ابدأ مجاناً ١٤ يوم'}
-                </button>
-                <p style={{ fontSize: 11, color: '#7A8A9E', textAlign: 'center', margin: 0 }}>
-                  بدون بطاقة ائتمان · إلغاء في أي وقت
-                </p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <h2 style={{ margin: '0 0 8px', fontSize: 20, color: '#EEF0F6' }}>مرحباً بعودتك</h2>
-                {[
-                  { key: 'email', placeholder: 'البريد الإلكتروني', type: 'email' },
-                  { key: 'password', placeholder: 'كلمة المرور', type: 'password' },
-                ].map(f => (
-                  <input key={f.key} type={f.type} placeholder={f.placeholder}
-                    value={(login as any)[f.key]}
-                    onChange={e => setLogin(l => ({ ...l, [f.key]: e.target.value }))}
-                    style={{
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: 10, padding: '12px 16px', color: '#EEF0F6', fontSize: 14,
-                      fontFamily: "'Cairo', sans-serif", outline: 'none', textAlign: 'right'
-                    }} />
-                ))}
-                <button onClick={handleLogin} disabled={loading} style={{
-                  marginTop: 8, padding: '14px 0', background: loading ? '#666' : '#C8963E',
-                  border: 'none', borderRadius: 12, color: '#000', fontWeight: 700, fontSize: 15,
-                  cursor: loading ? 'not-allowed' : 'pointer', fontFamily: "'Cairo', sans-serif"
-                }}>
-                  {loading ? 'جاري الدخول...' : '🔐 تسجيل الدخول'}
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="hidden lg:flex items-center gap-8 text-sm font-bold text-[#7A8A9E]">
+          <a href="#features" className="hover:text-white transition">المميزات</a>
+          <a href="#pricing" className="hover:text-white transition">الأسعار</a>
+          <a href="#faq" className="hover:text-white transition">الأسئلة</a>
         </div>
-      )}
-
-      {/* Navbar */}
-      <nav style={{
-        position: 'sticky', top: 0, zIndex: 100,
-        background: 'rgba(8,12,18,0.9)', backdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(200,150,62,0.15)',
-        padding: '16px 60px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-      }}>
-        <div style={{ fontSize: 22, fontWeight: 900, color: '#C8963E', fontFamily: "'Tajawal', sans-serif" }}>
-          🏭 صَنَا<span style={{ color: '#EEF0F6' }}>عي</span>
-        </div>
-        <div style={{ display: 'flex', gap: 32, fontSize: 14, color: '#7A8A9E' }}>
-          <a href="#features" style={{ color: '#7A8A9E', textDecoration: 'none' }}>المميزات</a>
-          <a href="#pricing" style={{ color: '#7A8A9E', textDecoration: 'none' }}>الأسعار</a>
-          <a href="#faq" style={{ color: '#7A8A9E', textDecoration: 'none' }}>الأسئلة</a>
-        </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button onClick={() => { setTab('login'); setModal('login') }} style={{
-            padding: '8px 20px', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 10, color: '#EEF0F6', cursor: 'pointer', fontSize: 14, fontFamily: "'Cairo', sans-serif"
-          }}>دخول</button>
-          <button onClick={() => { setTab('signup'); setModal('signup') }} style={{
-            padding: '8px 20px', background: '#C8963E', border: 'none',
-            borderRadius: 10, color: '#000', cursor: 'pointer', fontSize: 14, fontWeight: 700, fontFamily: "'Cairo', sans-serif"
-          }}>ابدأ مجاناً</button>
+        <div className="flex items-center gap-2 md:gap-4">
+          <button onClick={() => { setTab('login'); setModal('login') }} className="px-3 py-1.5 md:px-5 md:py-2 text-xs md:text-sm font-bold border border-white/15 rounded-xl hover:bg-white/5 transition">
+            دخول
+          </button>
+          <button onClick={() => { setTab('signup'); setModal('signup') }} className="px-4 py-1.5 md:px-6 md:py-2 text-xs md:text-sm font-bold bg-[#C8963E] text-black rounded-xl hover:bg-[#D4A843] transition">
+            ابدأ مجاناً
+          </button>
         </div>
       </nav>
 
-      {/* Hero */}
-      <section style={{ padding: '100px 60px', display: 'flex', alignItems: 'center', gap: 60, maxWidth: 1200, margin: '0 auto' }}>
-        <div style={{ flex: 1 }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px',
-            background: 'rgba(200,150,62,0.1)', border: '1px solid rgba(200,150,62,0.2)',
-            borderRadius: 20, fontSize: 12, color: '#C8963E', marginBottom: 24
-          }}>
-            <span style={{ width: 6, height: 6, background: '#C8963E', borderRadius: '50%', display: 'inline-block' }} />
+      {/* ── Hero Section ── */}
+      <header className="px-6 py-12 md:py-20 lg:py-28 max-w-[1200px] mx-auto flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
+        <div className="flex-1 text-center lg:text-right">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-[#C8963E]/10 border border-[#C8963E]/20 rounded-full text-xs font-bold text-[#C8963E] mb-6">
+            <span className="w-1.5 h-1.5 bg-[#C8963E] rounded-full animate-pulse" />
             الإطلاق الرسمي — النسخة ١.٠
           </div>
-          <h1 style={{ fontSize: 52, fontWeight: 900, lineHeight: 1.2, margin: '0 0 24px', fontFamily: "'Tajawal', sans-serif" }}>
-            <span style={{ display: 'block' }}>أدِر مصنعك</span>
-            <span style={{ display: 'block', color: '#C8963E' }}>بذكاء حقيقي</span>
-            <span style={{ display: 'block', WebkitTextStroke: '1px #EEF0F6', color: 'transparent' }}>من مكان واحد</span>
+          <h1 className="text-4xl md:text-6xl lg:text-7xl font-black leading-tight mb-6" style={{ fontFamily: "'Tajawal', sans-serif" }}>
+            <span className="block text-white">أدِر مصنعك</span>
+            <span className="block text-[#C8963E]">بذكاء حقيقي</span>
+            <span className="block text-transparent" style={{ WebkitTextStroke: '1px #EEF0F6' }}>من مكان واحد</span>
           </h1>
-          <p style={{ fontSize: 17, color: '#7A8A9E', lineHeight: 1.8, marginBottom: 36 }}>
+          <p className="text-base md:text-lg text-[#7A8A9E] leading-relaxed mb-8 max-w-2xl mx-auto lg:mx-0">
             نظام ERP عربي متكامل مصمم للمصانع الصغيرة والورش.
-            <strong style={{ color: '#EEF0F6' }}> تتبع الطلبات، الإنتاج، الجودة، والشحن</strong>
-            — كل شيء في لوحة واحدة.
+            <strong className="text-[#EEF0F6]"> تتبع الطلبات، الإنتاج، الجودة، والشحن</strong> — كل شيء في لوحة واحدة.
           </p>
-          <div style={{ display: 'flex', gap: 16, marginBottom: 40 }}>
-            <button onClick={() => { setTab('signup'); setModal('signup') }} style={{
-              padding: '16px 32px', background: '#C8963E', border: 'none', borderRadius: 14,
-              color: '#000', fontWeight: 700, fontSize: 16, cursor: 'pointer', fontFamily: "'Cairo', sans-serif"
-            }}>🚀 ابدأ مجاناً ١٤ يوم</button>
-            <a href="#features" style={{
-              padding: '16px 32px', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
-              borderRadius: 14, color: '#EEF0F6', fontSize: 16, textDecoration: 'none', display: 'flex', alignItems: 'center'
-            }}>← شوف الميزات</a>
+          
+          <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-10">
+            <button onClick={() => { setTab('signup'); setModal('signup') }} className="w-full sm:w-auto px-8 py-4 bg-[#C8963E] text-black font-black rounded-2xl hover:bg-[#D4A843] transition shadow-lg shadow-[#C8963E]/20 text-sm md:text-base">
+              🚀 ابدأ مجاناً ١٤ يوم
+            </button>
+            <a href="#features" className="w-full sm:w-auto px-8 py-4 border border-white/15 text-white font-bold rounded-2xl hover:bg-white/5 transition flex items-center justify-center gap-2 text-sm md:text-base">
+              ← شوف الميزات
+            </a>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ display: 'flex' }}>
-              {['#D4A843', '#1B7A6E', '#C24B2A', '#6B4FBB', '#2E86AB'].map((c, i) => (
-                <div key={i} style={{
-                  width: 36, height: 36, borderRadius: '50%', background: c,
-                  border: '2px solid #080C12', marginRight: -10, display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700
-                }}>
-                  {['م', 'س', 'ع', 'خ', 'ف'][i]}
-                </div>
-              ))}
+
+          {/* ── عداد المصانع (الميزة الجديدة) ── */}
+          <div className="bg-[#111927] border border-[#C8963E]/20 rounded-2xl p-5 md:p-6 shadow-2xl relative overflow-hidden text-right max-w-lg mx-auto lg:mx-0">
+            <div className="absolute top-0 right-0 w-full h-1 bg-white/5">
+              <div className="h-full bg-[#C8963E] transition-all duration-1000" style={{ width: `${progressPercentage}%` }} />
             </div>
-            <div style={{ marginRight: 16 }}>
-              <div style={{ color: '#C8963E', fontSize: 14 }}>★★★★★</div>
-              <div style={{ fontSize: 12, color: '#7A8A9E' }}>انضم <strong style={{ color: '#EEF0F6' }}>+٢٠٠ مصنع</strong> خلال أسبوع الإطلاق</div>
+            
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm md:text-base font-bold text-white">🚀 رحلة الانطلاق نحو ٢٠٠ مصنع</h3>
+              <span className="text-2xl font-black text-[#C8963E]">{registeredFactories}</span>
             </div>
+            
+            <div className="w-full bg-[#080C12] rounded-full h-2 mb-3 border border-white/5 overflow-hidden">
+              <div className="bg-gradient-to-r from-[#D4A843] to-[#C8963E] h-full rounded-full relative" style={{ width: `${progressPercentage}%` }}>
+                <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+              </div>
+            </div>
+            <p className="text-[11px] md:text-xs text-[#7A8A9E] font-bold">
+              ⚡ سارع بالتسجيل قبل اكتمال العدد المتاح للإصدار التجريبي المجاني!
+            </p>
           </div>
         </div>
 
-        {/* Dashboard Preview */}
-        <div style={{ flex: 1, maxWidth: 480 }}>
-          <div style={{ background: '#0D1B2A', borderRadius: 20, border: '1px solid rgba(200,150,62,0.2)', overflow: 'hidden' }}>
-            <div style={{ background: '#111927', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              {['#E74C3C', '#F39C12', '#2ECC71'].map((c, i) => (
-                <div key={i} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />
-              ))}
-              <div style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#7A8A9E' }}>app.sanaai.io/dashboard</div>
+        {/* ── Dashboard Preview ── */}
+        <div className="flex-1 w-full max-w-lg hidden md:block">
+          <div className="bg-[#0D1B2A] rounded-3xl border border-[#C8963E]/20 overflow-hidden shadow-2xl shadow-[#C8963E]/10">
+            <div className="bg-[#111927] px-4 py-3 flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#E74C3C]" />
+              <div className="w-3 h-3 rounded-full bg-[#F39C12]" />
+              <div className="w-3 h-3 rounded-full bg-[#2ECC71]" />
+              <div className="flex-1 text-center text-xs text-[#7A8A9E] font-mono">app.sanaai.io/dashboard</div>
             </div>
-            <div style={{ padding: 20 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
+            <div className="p-6">
+              <div className="grid grid-cols-3 gap-3 mb-6">
                 {[
-                  { label: 'الطلبات النشطة', val: '٢٤', color: '#C8963E' },
-                  { label: 'الإيرادات', val: '١٢٨k', color: '#2ECC71' },
-                  { label: 'نسبة الإنجاز', val: '٨٧٪', color: '#1ABC9C' },
-                ].map(s => (
-                  <div key={s.label} style={{ background: '#172030', borderRadius: 10, padding: '12px 8px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 11, color: '#7A8A9E', marginBottom: 4 }}>{s.label}</div>
-                    <div style={{ fontSize: 20, fontWeight: 900, color: s.color, fontFamily: "'Tajawal', sans-serif" }}>{s.val}</div>
+                  { label: 'الطلبات النشطة', val: '٢٤', color: 'text-[#C8963E]' },
+                  { label: 'الإيرادات', val: '١٢٨k', color: 'text-[#2ECC71]' },
+                  { label: 'نسبة الإنجاز', val: '٨٧٪', color: 'text-[#1ABC9C]' },
+                ].map((s, i) => (
+                  <div key={i} className="bg-[#172030] rounded-xl p-3 text-center">
+                    <div className="text-[10px] md:text-xs text-[#7A8A9E] mb-1">{s.label}</div>
+                    <div className={`text-lg md:text-xl font-black ${s.color}`} style={{ fontFamily: "'Tajawal', sans-serif" }}>{s.val}</div>
                   </div>
                 ))}
               </div>
-              <div style={{ background: '#172030', borderRadius: 12, padding: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 12 }}>
-                  <span style={{ fontWeight: 700 }}>⚡ آخر الطلبات</span>
-                  <span style={{ color: '#7A8A9E' }}>اليوم</span>
+              <div className="bg-[#172030] rounded-2xl p-4">
+                <div className="flex justify-between items-center mb-4 text-xs">
+                  <span className="font-bold text-white">⚡ آخر الطلبات</span>
+                  <span className="text-[#7A8A9E]">اليوم</span>
                 </div>
                 {[
-                  { av: 'م', c: '#D4A843', name: 'مدرسة النور', status: 'إنتاج', sc: '#C8963E', amt: '٤٥k' },
-                  { av: 'ف', c: '#1B7A6E', name: 'فندق ماريوت', status: 'جديد', sc: '#3498DB', amt: '٢٨k' },
-                  { av: 'ش', c: '#6B4FBB', name: 'شركة أوراكل', status: 'شحن', sc: '#1ABC9C', amt: '١٨k' },
-                  { av: 'ر', c: '#C24B2A', name: 'مطعم روزيتا', status: 'تم ✓', sc: '#2ECC71', amt: '٣٢k' },
+                  { av: 'م', bg: 'bg-[#D4A843]', name: 'مدرسة النور', status: 'إنتاج', sColor: 'text-[#C8963E] bg-[#C8963E]/10', amt: '٤٥k' },
+                  { av: 'ف', bg: 'bg-[#1B7A6E]', name: 'فندق ماريوت', status: 'جديد', sColor: 'text-[#3498DB] bg-[#3498DB]/10', amt: '٢٨k' },
+                  { av: 'ش', bg: 'bg-[#6B4FBB]', name: 'شركة أوراكل', status: 'شحن', sColor: 'text-[#1ABC9C] bg-[#1ABC9C]/10', amt: '١٨k' },
+                  { av: 'ر', bg: 'bg-[#C24B2A]', name: 'مطعم روزيتا', status: 'تم ✓', sColor: 'text-[#2ECC71] bg-[#2ECC71]/10', amt: '٣٢k' },
                 ].map((r, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: r.c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{r.av}</div>
-                    <div style={{ flex: 1, fontSize: 12 }}>{r.name}</div>
-                    <div style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: `${r.sc}22`, color: r.sc }}>{r.status}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#C8963E' }}>{r.amt}</div>
+                  <div key={i} className={`flex items-center gap-3 py-2.5 ${i < 3 ? 'border-b border-white/5' : ''}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${r.bg}`}>{r.av}</div>
+                    <div className="flex-1 text-xs md:text-sm font-medium">{r.name}</div>
+                    <div className={`text-[10px] px-2 py-1 rounded-md font-bold ${r.sColor}`}>{r.status}</div>
+                    <div className="text-xs font-bold text-[#C8963E] w-10 text-left">{r.amt}</div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
         </div>
-      </section>
+      </header>
 
-      {/* Logos Strip */}
-      <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '20px 60px', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', gap: 48, fontSize: 13, color: '#7A8A9E', flexWrap: 'wrap' }}>
-          <span>يثق بنا:</span>
-          {['🏭 مصانع اليونيفورم', '👕 ورش الخياطة', '🏗️ شركات المقاولات', '🍽️ سلاسل المطاعم', '🏫 إدارات المدارس', '🏥 المستشفيات'].map(l => (
-            <span key={l}>{l}</span>
+      {/* ── Logos Strip ── */}
+      <div className="border-y border-white/5 py-6 px-6 overflow-hidden bg-[#0D1B2A]/50">
+        <div className="flex items-center justify-center flex-wrap gap-6 md:gap-12 text-sm md:text-base font-bold text-[#7A8A9E] max-w-6xl mx-auto">
+          <span className="text-white">يثق بنا:</span>
+          {['🏭 مصانع اليونيفورم', '👕 ورش الخياطة', 'مصانع ملابس', 'محلات ملابس بفروع', 'تصنيع للغير', 'ورش تطريز'].map(l => (
+            <span key={l} className="hover:text-white transition cursor-default">{l}</span>
           ))}
         </div>
       </div>
 
-      {/* Features */}
-      <section id="features" style={{ padding: '100px 60px', maxWidth: 1200, margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: 60 }}>
-          <div style={{ color: '#C8963E', fontSize: 13, marginBottom: 12 }}>⚡ المميزات</div>
-          <h2 style={{ fontSize: 40, fontWeight: 900, margin: '0 0 16px', fontFamily: "'Tajawal', sans-serif" }}>كل أدوات المصنع في منصة واحدة</h2>
-          <p style={{ color: '#7A8A9E', fontSize: 16 }}>من لحظة استلام الطلب حتى التسليم النهائي — صَنَاعي يغطي كل خطوة.</p>
+      {/* ── Features ── */}
+      <section id="features" className="px-6 py-16 md:py-24 max-w-[1200px] mx-auto">
+        <div className="text-center mb-16">
+          <div className="text-[#C8963E] text-sm font-bold mb-3">⚡ المميزات</div>
+          <h2 className="text-3xl md:text-4xl font-black mb-4" style={{ fontFamily: "'Tajawal', sans-serif" }}>كل أدوات المصنع في منصة واحدة</h2>
+          <p className="text-[#7A8A9E] text-base md:text-lg">من لحظة استلام الطلب حتى التسليم النهائي — صَنَاعي يغطي كل خطوة.</p>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {[
             { icon: '📦', title: 'إدارة الطلبات الذكية', desc: 'تتبع كل طلب من الاستلام حتى التسليم. رقم تلقائي، حالات لحظية، وتنبيهات فورية عند التأخير.' },
             { icon: '⚙️', title: 'خط الإنتاج المرئي', desc: 'Kanban board بمراحل التصنيع الخمس. تحريك الطلبات بضغطة وتتبع التقدم لحظياً.' },
@@ -303,87 +213,66 @@ export default function LandingPage() {
             { icon: '🧾', title: 'الفواتير التلقائية', desc: 'فواتير تُنشأ تلقائياً مع كل طلب. تتبع المدفوعات والمتأخرات بتقارير فورية.' },
             { icon: '📊', title: 'تقارير وإحصائيات', desc: 'لوحة تحكم بإحصائيات حية: الإيرادات، الأداء، الطلبات المتأخرة، وأداء الموظفين.' },
           ].map(f => (
-            <div key={f.title} style={{
-              background: '#111927', borderRadius: 20, padding: 28,
-              border: '1px solid rgba(255,255,255,0.05)',
-              transition: 'border-color 0.2s'
-            }}>
-              <div style={{ fontSize: 36, marginBottom: 16 }}>{f.icon}</div>
-              <h3 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 10px' }}>{f.title}</h3>
-              <p style={{ color: '#7A8A9E', fontSize: 14, lineHeight: 1.7, margin: 0 }}>{f.desc}</p>
+            <div key={f.title} className="bg-[#111927] rounded-3xl p-8 border border-white/5 hover:border-[#C8963E]/30 transition-all group">
+              <div className="text-4xl mb-6 transform group-hover:scale-110 transition-transform">{f.icon}</div>
+              <h3 className="text-lg font-bold mb-3 text-white">{f.title}</h3>
+              <p className="text-[#7A8A9E] text-sm leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Pricing */}
-      <section id="pricing" style={{ padding: '100px 60px', background: '#0D1B2A' }}>
-        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 48 }}>
-            <div style={{ color: '#C8963E', fontSize: 13, marginBottom: 12 }}>💰 الأسعار</div>
-            <h2 style={{ fontSize: 40, fontWeight: 900, margin: '0 0 32px', fontFamily: "'Tajawal', sans-serif" }}>ابدأ مجاناً، ادفع لما تنمو</h2>
-            <div style={{ display: 'inline-flex', background: '#172030', borderRadius: 12, padding: 4 }}>
+      {/* ── Pricing ── */}
+      <section id="pricing" className="px-6 py-16 md:py-24 bg-[#0D1B2A] border-y border-white/5">
+        <div className="max-w-[1100px] mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-[#C8963E] text-sm font-bold mb-3">💰 الأسعار</div>
+            <h2 className="text-3xl md:text-4xl font-black mb-8" style={{ fontFamily: "'Tajawal', sans-serif" }}>ابدأ مجاناً، ادفع لما تنمو</h2>
+            <div className="inline-flex bg-[#172030] p-1.5 rounded-2xl border border-white/5">
               {(['monthly', 'yearly'] as const).map(b => (
-                <button key={b} onClick={() => setBilling(b)} style={{
-                  padding: '8px 24px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: billing === b ? '#C8963E' : 'transparent',
-                  color: billing === b ? '#000' : '#7A8A9E', fontWeight: 700, fontSize: 14,
-                  fontFamily: "'Cairo', sans-serif"
-                }}>
-                  {b === 'monthly' ? 'شهري' : 'سنوي (-٤٪)'}
+                <button key={b} onClick={() => setBilling(b)} className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${billing === b ? 'bg-[#C8963E] text-black' : 'text-[#7A8A9E] hover:text-white'}`}>
+                  {b === 'monthly' ? 'شهري' : 'سنوي (وفر ٢٠٪)'}
                 </button>
               ))}
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {[
-              { name: 'Starter', price: p.starter, users: '٥', featured: false,
-                features: ['إدارة الطلبات الكاملة', 'متابعة الإنتاج', 'فحص الجودة', 'الشحن والتسليم', '٥ مستخدمين'],
+              { name: 'Starter', price: p.starter, users: '٥', featured: false, 
+                features: ['إدارة الطلبات الكاملة', 'متابعة الإنتاج', 'فحص الجودة', 'الشحن والتسليم', '٥ مستخدمين'], 
                 dim: ['تقارير PDF', 'API Access', 'دعم أولوية'] },
-              { name: 'Professional', price: p.pro, users: '١٥', featured: true,
-                features: ['كل مميزات Starter', 'تقارير PDF تلقائية', 'لوحة تحكم متقدمة', 'إشعارات واتساب', '١٥ مستخدم', 'أداء الموظفين', 'نسخ احتياطي يومي'],
+              { name: 'Professional', price: p.pro, users: '١٥', featured: true, 
+                features: ['كل مميزات Starter', 'تقارير PDF تلقائية', 'لوحة تحكم متقدمة', 'إشعارات واتساب', '١٥ مستخدم', 'أداء الموظفين', 'نسخ احتياطي يومي'], 
                 dim: ['API Access'] },
-              { name: 'Enterprise', price: p.ent, users: '∞', featured: false,
-                features: ['كل مميزات Professional', 'مستخدمين غير محدود', 'API كامل', 'تخصيص كامل', 'مدير حساب مخصص', 'دعم ٢٤/٧', 'SLA ٩٩.٩٪'],
+              { name: 'Enterprise', price: p.ent, users: '∞', featured: false, 
+                features: ['كل مميزات Professional', 'مستخدمين غير محدود', 'API كامل', 'تخصيص كامل', 'مدير حساب مخصص', 'دعم ٢٤/٧', 'SLA ٩٩.٩٪'], 
                 dim: [] },
             ].map(plan => (
-              <div key={plan.name} style={{
-                background: plan.featured ? 'rgba(200,150,62,0.08)' : '#111927',
-                borderRadius: 20, padding: 28,
-                border: `1px solid ${plan.featured ? 'rgba(200,150,62,0.4)' : 'rgba(255,255,255,0.05)'}`,
-                position: 'relative'
-              }}>
+              <div key={plan.name} className={`rounded-3xl p-8 flex flex-col relative transition-transform ${plan.featured ? 'bg-[#C8963E]/5 border border-[#C8963E]/40 transform lg:-translate-y-4 shadow-2xl shadow-[#C8963E]/10' : 'bg-[#111927] border border-white/5'}`}>
                 {plan.featured && (
-                  <div style={{
-                    position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
-                    background: '#C8963E', borderRadius: 8, padding: '4px 16px', fontSize: 12, fontWeight: 700, color: '#000'
-                  }}>⭐ الأكثر طلباً</div>
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[#C8963E] text-black px-4 py-1 rounded-full text-xs font-black shadow-lg shadow-[#C8963E]/20">⭐ الأكثر طلباً</div>
                 )}
-                <div style={{ fontSize: 16, fontWeight: 700, color: plan.featured ? '#C8963E' : '#EEF0F6', marginBottom: 8 }}>{plan.name}</div>
-                <div style={{ fontSize: 36, fontWeight: 900, marginBottom: 4, fontFamily: "'Tajawal', sans-serif" }}>
-                  <span style={{ fontSize: 16 }}>ج.م</span> {plan.price}
+                <div className={`text-lg font-bold mb-2 ${plan.featured ? 'text-[#C8963E]' : 'text-white'}`}>{plan.name}</div>
+                <div className="text-4xl md:text-5xl font-black mb-2" style={{ fontFamily: "'Tajawal', sans-serif" }}>
+                  <span className="text-lg text-gray-400 font-medium">ج.م</span> {plan.price}
                 </div>
-                <div style={{ fontSize: 12, color: '#7A8A9E', marginBottom: 20 }}>{p.label} · حتى {plan.users} مستخدمين</div>
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginBottom: 20 }} />
-                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="text-xs text-[#7A8A9E] font-bold mb-6 pb-6 border-b border-white/5">
+                  {p.label} · حتى {plan.users} مستخدمين
+                </div>
+                <ul className="flex-1 space-y-4 mb-8">
                   {plan.features.map(f => (
-                    <li key={f} style={{ fontSize: 13, color: '#EEF0F6', display: 'flex', gap: 8 }}>
-                      <span style={{ color: '#2ECC71' }}>✓</span> {f}
+                    <li key={f} className="flex items-center gap-3 text-sm font-medium text-[#EEF0F6]">
+                      <span className="text-[#2ECC71]">✓</span> {f}
                     </li>
                   ))}
                   {plan.dim.map(f => (
-                    <li key={f} style={{ fontSize: 13, color: '#3A4A5E', display: 'flex', gap: 8 }}>
+                    <li key={f} className="flex items-center gap-3 text-sm font-medium text-[#3A4A5E]">
                       <span>✓</span> {f}
                     </li>
                   ))}
                 </ul>
-                <button onClick={() => { setTab('signup'); setModal('signup') }} style={{
-                  width: '100%', padding: '12px 0',
-                  background: plan.featured ? '#C8963E' : 'transparent',
-                  border: plan.featured ? 'none' : '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 12, color: plan.featured ? '#000' : '#EEF0F6',
-                  fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: "'Cairo', sans-serif"
-                }}>
+                <button onClick={() => { setTab('signup'); setModal('signup') }} className={`w-full py-4 rounded-xl font-bold transition-all text-sm ${plan.featured ? 'bg-[#C8963E] text-black hover:bg-[#D4A843] shadow-lg shadow-[#C8963E]/20' : 'border border-white/15 text-white hover:bg-white/5'}`}>
                   {plan.name === 'Enterprise' ? 'تواصل معنا' : 'ابدأ مجاناً ←'}
                 </button>
               </div>
@@ -392,26 +281,26 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section style={{ padding: '100px 60px', maxWidth: 1200, margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: 60 }}>
-          <div style={{ color: '#C8963E', fontSize: 13, marginBottom: 12 }}>💬 آراء العملاء</div>
-          <h2 style={{ fontSize: 40, fontWeight: 900, margin: 0, fontFamily: "'Tajawal', sans-serif" }}>مصانع حقيقية، نتائج حقيقية</h2>
+      {/* ── Testimonials ── */}
+      <section className="px-6 py-16 md:py-24 max-w-[1200px] mx-auto">
+        <div className="text-center mb-16">
+          <div className="text-[#C8963E] text-sm font-bold mb-3">💬 آراء العملاء</div>
+          <h2 className="text-3xl md:text-4xl font-black" style={{ fontFamily: "'Tajawal', sans-serif" }}>مصانع حقيقية، نتائج حقيقية</h2>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
           {[
-            { stars: '★★★★★', text: 'قبل صَنَاعي كنا نشغّل على ورق و WhatsApp. دلوقتي بشوف حالة كل طلب لحظة بلحظة وانخفضت الأخطاء ٩٠٪.', name: 'محمد السيد', role: 'مصنع السيد لليونيفورم — القاهرة', c: '#D4A843', av: 'م' },
-            { stars: '★★★★★', text: 'النظام سهل ومريح جداً. موظفيني اتعلموه في يوم واحد. التقارير بتساعدني أاخد قرارات صح.', name: 'سارة العمري', role: 'ورشة سارة للخياطة — الإسكندرية', c: '#1B7A6E', av: 'س' },
-            { stars: '★★★★★', text: 'الـ pipeline بتاع الإنتاج ده غيّر طريقة شغلنا كلها. بقينا نسلّم في الموعد ٩٥٪ من الوقت.', name: 'خالد الغامدي', role: 'مصنع النجم — جدة', c: '#6B4FBB', av: 'خ' },
+            { stars: '★★★★★', text: 'قبل صَنَاعي كنا نشغّل على ورق و WhatsApp. دلوقتي بشوف حالة كل طلب لحظة بلحظة وانخفضت الأخطاء ٩٠٪.', name: 'محمد السيد', role: 'مصنع السيد لليونيفورم — القاهرة', bg: 'bg-[#D4A843]', av: 'م' },
+            { stars: '★★★★★', text: 'النظام سهل ومريح جداً. موظفيني اتعلموه في يوم واحد. التقارير بتساعدني أاخد قرارات صح.', name: 'سارة العمري', role: 'ورشة سارة للخياطة — الإسكندرية', bg: 'bg-[#1B7A6E]', av: 'س' },
+            { stars: '★★★★★', text: 'الـ pipeline بتاع الإنتاج ده غيّر طريقة شغلنا كلها. بقينا نسلّم في الموعد ٩٥٪ من الوقت.', name: 'خالد الغامدي', role: 'مصنع النجم — جدة', bg: 'bg-[#6B4FBB]', av: 'خ' },
           ].map(t => (
-            <div key={t.name} style={{ background: '#111927', borderRadius: 20, padding: 28, border: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ color: '#C8963E', marginBottom: 16 }}>{t.stars}</div>
-              <p style={{ fontSize: 14, lineHeight: 1.8, color: '#7A8A9E', margin: '0 0 20px' }}>{t.text}</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 36, height: 36, borderRadius: '50%', background: t.c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{t.av}</div>
+            <div key={t.name} className="bg-[#111927] rounded-3xl p-8 border border-white/5">
+              <div className="text-[#C8963E] mb-4 text-xl tracking-widest">{t.stars}</div>
+              <p className="text-[#7A8A9E] text-sm leading-relaxed mb-6">"{t.text}"</p>
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-black text-white ${t.bg}`}>{t.av}</div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{t.name}</div>
-                  <div style={{ fontSize: 11, color: '#7A8A9E' }}>{t.role}</div>
+                  <div className="text-sm font-bold text-white mb-1">{t.name}</div>
+                  <div className="text-xs text-[#7A8A9E] font-medium">{t.role}</div>
                 </div>
               </div>
             </div>
@@ -419,61 +308,117 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* FAQ */}
-      <section id="faq" style={{ padding: '100px 60px', background: '#0D1B2A' }}>
-        <div style={{ maxWidth: 700, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 60 }}>
-            <div style={{ color: '#C8963E', fontSize: 13, marginBottom: 12 }}>❓ أسئلة شائعة</div>
-            <h2 style={{ fontSize: 40, fontWeight: 900, margin: 0, fontFamily: "'Tajawal', sans-serif" }}>كل ما تحتاج معرفته</h2>
+      {/* ── FAQ ── */}
+      <section id="faq" className="px-6 py-16 md:py-24 bg-[#0D1B2A] border-y border-white/5">
+        <div className="max-w-[700px] mx-auto">
+          <div className="text-center mb-16">
+            <div className="text-[#C8963E] text-sm font-bold mb-3">❓ أسئلة شائعة</div>
+            <h2 className="text-3xl md:text-4xl font-black" style={{ fontFamily: "'Tajawal', sans-serif" }}>كل ما تحتاج معرفته</h2>
           </div>
-          {[
-            { q: 'هل أحتاج خبرة تقنية؟', a: 'لا على الإطلاق. صَنَاعي مصمم للمصنعيين. الواجهة بالعربي بالكامل وبسيطة جداً.' },
-            { q: 'هل بياناتي آمنة؟', a: 'نعم. كل مصنع له بيانات معزولة تماماً. نستخدم تشفير SSL وقواعد بيانات Supabase المؤمنة.' },
-            { q: 'إيه اللي بيحصل بعد التجربة المجانية؟', a: 'هنبعتلك تذكير قبل الانتهاء بـ٣ أيام. مفيش أي رسوم تلقائية بدون موافقتك.' },
-            { q: 'هل يشتغل على الموبايل؟', a: 'نعم. الداشبورد متجاوب ويشتغل على أي موبايل أو تابلت.' },
-            { q: 'هل أقدر أنقل بياناتي؟', a: 'بالطبع. تقدر تصدّر كل شيء بصيغة Excel أو CSV بضغطة زر.' },
-          ].map((f, i) => (
-            <details key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '20px 0' }}>
-              <summary style={{ cursor: 'pointer', fontSize: 15, fontWeight: 600, listStyle: 'none', display: 'flex', justifyContent: 'space-between' }}>
-                {f.q} <span style={{ color: '#C8963E' }}>+</span>
-              </summary>
-              <p style={{ margin: '12px 0 0', color: '#7A8A9E', fontSize: 14, lineHeight: 1.7 }}>{f.a}</p>
-            </details>
-          ))}
+          <div className="space-y-4">
+            {[
+              { q: 'هل أحتاج خبرة تقنية؟', a: 'لا على الإطلاق. صَنَاعي مصمم للمصنعيين. الواجهة بالعربي بالكامل وبسيطة جداً.' },
+              { q: 'هل بياناتي آمنة؟', a: 'نعم. كل مصنع له بيانات معزولة تماماً. نستخدم تشفير SSL وقواعد بيانات Supabase المؤمنة.' },
+              { q: 'إيه اللي بيحصل بعد التجربة المجانية؟', a: 'هنبعتلك تذكير قبل الانتهاء بـ٣ أيام. مفيش أي رسوم تلقائية بدون موافقتك.' },
+              { q: 'هل يشتغل على الموبايل؟', a: 'نعم. الداشبورد متجاوب ويشتغل على أي موبايل أو تابلت.' },
+              { q: 'هل أقدر أنقل بياناتي؟', a: 'بالطبع. تقدر تصدّر كل شيء بصيغة Excel أو CSV بضغطة زر.' },
+            ].map((f, i) => (
+              <details key={i} className="group bg-[#111927] border border-white/5 rounded-2xl p-6 open:border-[#C8963E]/30 transition-all cursor-pointer">
+                <summary className="font-bold text-base md:text-lg text-white list-none flex justify-between items-center outline-none">
+                  {f.q} 
+                  <span className="text-[#C8963E] text-2xl font-normal group-open:rotate-45 transition-transform duration-300">+</span>
+                </summary>
+                <p className="mt-4 text-sm text-[#7A8A9E] leading-relaxed border-t border-white/5 pt-4">{f.a}</p>
+              </details>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section style={{ padding: '100px 60px', textAlign: 'center', background: 'linear-gradient(135deg, #0D1B2A, #132438)' }}>
-        <div style={{ color: '#C8963E', fontSize: 13, marginBottom: 16 }}>🚀 ابدأ الآن و نظم مصنعك</div>
-        <h2 style={{ fontSize: 48, fontWeight: 900, margin: '0 0 16px', fontFamily: "'Tajawal', sans-serif" }}>
-          مصنعك يستحق <span style={{ color: '#C8963E' }}>نظاماً حقيقياً</span>
+      {/* ── Bottom CTA ── */}
+      <section className="px-6 py-20 md:py-28 text-center bg-gradient-to-br from-[#0D1B2A] to-[#132438]">
+        <div className="text-[#C8963E] text-sm font-bold mb-4">🚀 ابدأ الآن و نظم مصنعك</div>
+        <h2 className="text-4xl md:text-5xl font-black mb-6" style={{ fontFamily: "'Tajawal', sans-serif" }}>
+          مصنعك يستحق <span className="text-[#C8963E]">نظاماً حقيقياً</span>
         </h2>
-        <p style={{ color: '#7A8A9E', fontSize: 16, marginBottom: 36 }}>
-          انضم لأكثر من ٢٠٠ مصنع. ابدأ التجربة المجانية — لا يلزم بطاقة ائتمان.
+        <p className="text-[#7A8A9E] text-base md:text-lg mb-10 max-w-xl mx-auto">
+          انضم ل ٢٠٠ مصنع شركاء نجاج اول مرحلة . ابدأ التجربة المجانية — لا يلزم بطاقة ائتمان.
         </p>
-        <button onClick={() => { setTab('signup'); setModal('signup') }} style={{
-          padding: '18px 48px', background: '#C8963E', border: 'none', borderRadius: 16,
-          color: '#000', fontWeight: 700, fontSize: 18, cursor: 'pointer', fontFamily: "'Cairo', sans-serif"
-        }}>🚀 ابدأ مجاناً الآن ←</button>
-        <p style={{ marginTop: 16, fontSize: 12, color: '#7A8A9E' }}>١٤ يوم مجاناً · بدون بطاقة · إلغاء في أي وقت</p>
+        <button onClick={() => { setTab('signup'); setModal('signup') }} className="px-10 py-5 bg-[#C8963E] text-black font-black rounded-2xl hover:bg-[#D4A843] transition shadow-2xl shadow-[#C8963E]/20 text-base md:text-lg">
+          🚀 ابدأ مجاناً الآن ←
+        </button>
+        <p className="mt-6 text-xs font-bold text-[#7A8A9E]">7 أيام مجاناً · بدون بطاقة · إلغاء في أي وقت</p>
       </section>
 
-      {/* Footer */}
-      <footer style={{
-        padding: '32px 60px', borderTop: '1px solid rgba(255,255,255,0.05)',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16
-      }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: '#C8963E', fontFamily: "'Tajawal', sans-serif" }}>صَنَاعي</div>
-          <div style={{ fontSize: 12, color: '#7A8A9E', marginTop: 4 }}>© 2026 صَنَاعي — تطوير حلول الويب بواسطة أحمد يوسف · جميع الحقوق محفوظة</div>
+      {/* ── Footer ── */}
+      <footer className="border-t border-white/5 py-8 px-6 md:px-16 flex flex-col md:flex-row justify-between items-center gap-6 bg-[#080C12]">
+        <div className="text-center md:text-right">
+          <div className="text-xl font-black text-[#C8963E] mb-2" style={{ fontFamily: "'Tajawal', sans-serif" }}>صَنَاعي</div>
+          <div className="text-xs text-[#7A8A9E] font-medium">© 2026 صَنَاعي — تطوير حلول الويب بواسطة أحمد يوسف · جميع الحقوق محفوظة</div>
         </div>
-        <div style={{ display: 'flex', gap: 24, fontSize: 13, color: '#7A8A9E' }}>
+        <div className="flex flex-wrap justify-center gap-6 text-xs font-bold text-[#7A8A9E]">
           {['سياسة الخصوصية', 'الشروط والأحكام', 'تواصل معنا 01069936787'].map(l => (
-            <a key={l} href="#" style={{ color: '#7A8A9E', textDecoration: 'none' }}>{l}</a>
+            <a key={l} href="#" className="hover:text-white transition">{l}</a>
           ))}
         </div>
       </footer>
+
+      {/* ── Toast (Mobile Friendly) ── */}
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3.5 rounded-2xl z-[9999] text-xs md:text-sm font-bold whitespace-nowrap shadow-2xl transition-all border ${toastStyles[toast.type]}`}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* ── Auth Modal ── */}
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={() => setModal(null)}>
+          <div className="w-full max-w-md bg-[#0D1B2A] rounded-3xl p-8 border border-[#C8963E]/20 shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setModal(null)} className="absolute top-5 left-5 text-gray-500 hover:text-white transition text-xl">✕</button>
+            
+            <div className="flex gap-4 mb-8 border-b border-white/10 pb-4">
+              <button onClick={() => setTab('signup')} className={`flex-1 text-sm md:text-base font-bold pb-2 border-b-2 transition-all ${tab === 'signup' ? 'text-[#C8963E] border-[#C8963E]' : 'text-[#7A8A9E] border-transparent hover:text-white'}`}>إنشاء حساب</button>
+              <button onClick={() => setTab('login')} className={`flex-1 text-sm md:text-base font-bold pb-2 border-b-2 transition-all ${tab === 'login' ? 'text-[#C8963E] border-[#C8963E]' : 'text-[#7A8A9E] border-transparent hover:text-white'}`}>تسجيل دخول</button>
+            </div>
+
+            {tab === 'signup' ? (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-white mb-6">ابدأ تجربتك المجانية</h2>
+                <div>
+                  <input type="text" placeholder="اسم المصنع / الورشة *" value={signup.factory} onChange={e => setSignup({...signup, factory: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-[#C8963E]/50 outline-none transition placeholder-gray-500" />
+                </div>
+                <div>
+                  <input type="text" placeholder="الاسم بالكامل *" value={signup.name} onChange={e => setSignup({...signup, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-[#C8963E]/50 outline-none transition placeholder-gray-500" />
+                </div>
+                <div>
+                  <input type="email" placeholder="البريد الإلكتروني *" value={signup.email} onChange={e => setSignup({...signup, email: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
+                </div>
+                <div>
+                  <input type="password" placeholder="كلمة المرور (٨ أحرف+) *" value={signup.password} onChange={e => setSignup({...signup, password: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
+                </div>
+                <button onClick={handleSignup} disabled={loading} className="w-full py-4 mt-2 bg-[#C8963E] text-black font-bold rounded-xl hover:bg-[#D4A843] transition disabled:opacity-50">
+                  {loading ? 'جاري الإنشاء...' : '🚀 ابدأ مجاناً ١٤ يوم'}
+                </button>
+                <p className="text-[11px] text-[#7A8A9E] text-center font-bold mt-2">بدون بطاقة ائتمان · إلغاء في أي وقت</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-white mb-6">مرحباً بعودتك</h2>
+                <div>
+                  <input type="email" placeholder="البريد الإلكتروني" value={login.email} onChange={e => setLogin({...login, email: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
+                </div>
+                <div>
+                  <input type="password" placeholder="كلمة المرور" value={login.password} onChange={e => setLogin({...login, password: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
+                </div>
+                <button onClick={handleLogin} disabled={loading} className="w-full py-4 mt-2 bg-[#C8963E] text-black font-bold rounded-xl hover:bg-[#D4A843] transition disabled:opacity-50">
+                  {loading ? 'جاري الدخول...' : '🔐 تسجيل الدخول'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
