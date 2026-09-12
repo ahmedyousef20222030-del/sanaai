@@ -12,7 +12,8 @@ export default function LandingPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'error' | 'info' } | null>(null)
   const [billing, setBilling] = useState<'monthly' | 'yearly'>('monthly')
 
-  const [signup, setSignup] = useState({ factory: '', name: '', email: '', password: '' })
+  // 👈 إضافة حقل الهاتف هنا
+  const [signup, setSignup] = useState({ factory: '', name: '', phone: '', email: '', password: '' })
   const [login, setLogin] = useState({ email: '', password: '' })
   
   // ── عداد المصانع (الرقم الحقيقي من قاعدة البيانات عبر دالة RPC) ──
@@ -38,16 +39,35 @@ export default function LandingPage() {
   }
 
   async function handleSignup() {
-    const { factory, name, email, password } = signup
-    if (!factory || !name || !email || !password) { showToast('⚠️ يرجى إدخال جميع البيانات', 'warning'); return }
-    if (password.length < 8) { showToast('⚠️ كلمة المرور ٨ أحرف على الأقل', 'warning'); return }
+    const { factory, name, phone, email, password } = signup
+    // 👈 التحقق من إدخال رقم الهاتف مع باقي الحقول
+    if (!factory || !name || !phone || !email || !password) { 
+      showToast('⚠️ يرجى إدخال جميع البيانات بما فيها رقم الهاتف', 'warning')
+      return 
+    }
+    if (password.length < 8) { 
+      showToast('⚠️ كلمة المرور ٨ أحرف على الأقل', 'warning')
+      return 
+    }
     
     setLoading(true)
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: name, factory_name: factory } }
+      email, 
+      password,
+      // 👈 تمرير رقم الهاتف ليتم حفظه في بيانات المستخدم
+      options: { 
+        data: { 
+          full_name: name, 
+          factory_name: factory,
+          phone: phone.trim()
+        } 
+      }
     })
-    if (authError) { showToast('❌ ' + authError.message, 'error'); setLoading(false); return }
+    if (authError) { 
+      showToast('❌ ' + authError.message, 'error')
+      setLoading(false)
+      return 
+    }
     
     showToast(`✅ أهلاً ${name}! تم إنشاء حساب ${factory} بنجاح`, 'success')
     setModal(null)
@@ -424,6 +444,29 @@ export default function LandingPage() {
         </div>
       </footer>
 
+      {/* ── زر الواتساب العائم (Floating WhatsApp Button) ── */}
+      <a
+        href="https://wa.me/201069936787?text=%D9%85%D8%B1%D8%AD%D8%A8%D8%A7%D9%8B%D8%8C%20%D8%A3%D8%B1%D9%8A%D8%AF%20%D8%A7%D9%84%D8%A7%D8%B3%D8%AA%D9%81%D8%B3%D8%A7%D8%B1%20%D8%B9%D9%86%20%D9%86%D8%B8%D8%A7%D9%85%20%D8%B5%D9%8E%D9%86%D9%8E%D8%A7%D8%B9%D9%8A"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="تواصل معنا عبر واتساب"
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 bg-[#25D366] hover:bg-[#20bd5a] text-white px-4 py-3 rounded-full shadow-2xl hover:shadow-[#25D366]/40 hover:scale-105 active:scale-95 transition-all duration-300 group"
+      >
+        <svg
+          className="w-6 h-6 fill-current"
+          viewBox="0 0 24 24"
+        >
+          <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/>
+        </svg>
+        <span className="hidden sm:inline font-bold text-sm">
+          تواصل معنا
+        </span>
+        <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+        </span>
+      </a>
+
       {/* ── Toast (Mobile Friendly) ── */}
       {toast && (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl z-[9999] text-xs md:text-sm font-bold whitespace-nowrap shadow-2xl transition-all border ${toastStyles[toast.type]}`}>
@@ -450,6 +493,10 @@ export default function LandingPage() {
                 </div>
                 <div>
                   <input type="text" placeholder="الاسم بالكامل *" value={signup.name} onChange={e => setSignup({...signup, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs md:text-sm text-white focus:border-[#C8963E]/50 outline-none transition placeholder-gray-500" />
+                </div>
+                {/* 👈 حقل رقم الهاتف / واتساب الجديد */}
+                <div>
+                  <input type="tel" placeholder="رقم الهاتف / واتساب *" value={signup.phone} onChange={e => setSignup({...signup, phone: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs md:text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
                 </div>
                 <div>
                   <input type="email" placeholder="البريد الإلكتروني *" value={signup.email} onChange={e => setSignup({...signup, email: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs md:text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
