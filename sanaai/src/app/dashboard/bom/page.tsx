@@ -1,6 +1,6 @@
 'use client';
 
-// ⚠️ المسار الموصى به لهذا الملف داخل المشروع: src/app/dashboard/bom/page.tsx
+// المسار: src/app/dashboard/bom/page.tsx
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 // ✅ إصلاح: استخدام عميل Supabase الموحّد الفعلي في المشروع بدل مسار غير موجود
@@ -24,12 +24,10 @@ import {
 // الأنواع (Types)
 // ============================================================================
 
+// المنتجات مصدرها جدول inventory (نفس الاسم قد يتكرر بمقاسات/ألوان مختلفة، فبنجمعهم بالاسم)
 interface Product {
-  id: string;
-  tenant_id: string;
   name: string;
   sku: string | null;
-  is_active: boolean;
 }
 
 interface RawMaterialOption {
@@ -43,7 +41,7 @@ interface RawMaterialOption {
 interface BomRow {
   id: string;
   tenant_id: string;
-  product_id: string;
+  product_name: string; // product_bom مربوط بالاسم النصي
   material_id: string;
   quantity_required: number;
   notes: string | null;
@@ -179,7 +177,7 @@ export default function ProductBomPage() {
   const [isBootstrapping, setIsBootstrapping] = useState<boolean>(true);
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [selectedProductName, setSelectedProductName] = useState<string>('');
   const [productSearch, setProductSearch] = useState<string>('');
 
   const [materialOptions, setMaterialOptions] = useState<RawMaterialOption[]>([]);
@@ -241,10 +239,9 @@ export default function ProductBomPage() {
     if (!tenantId) return;
 
     const { data, error } = await supabase
-      .from('products')
-      .select('id, tenant_id, name, sku, is_active')
+      .from('inventory')
+      .select('name, sku')
       .eq('tenant_id', tenantId)
-      .eq('is_active', true)
       .order('name', { ascending: true });
 
     if (error) {
@@ -252,12 +249,20 @@ export default function ProductBomPage() {
       return;
     }
 
-    const list = (data as Product[]) ?? [];
+    // دمج الأصناف المكررة بنفس الاسم (مقاسات/ألوان) في منتج واحد
+    const list = Array.from(
+      new Map(
+        ((data as { name: string; sku: string | null }[]) ?? [])
+          .filter((r) => r.name)
+          .map((r) => [r.name, { name: r.name, sku: r.sku }] as const)
+      ).values()
+    ) as Product[];
+
     setProducts(list);
-    if (list.length > 0 && !selectedProductId) {
-      setSelectedProductId(list[0].id);
+    if (list.length > 0 && !selectedProductName) {
+      setSelectedProductName(list[0].name);
     }
-  }, [tenantId, showBanner, selectedProductId]);
+  }, [tenantId, showBanner, selectedProductName]);
 
   const fetchMaterialOptions = useCallback(async () => {
     if (!tenantId) return;
@@ -290,7 +295,7 @@ export default function ProductBomPage() {
   // --------------------------------------------------------------------------
 
   const fetchBomForProduct = useCallback(async () => {
-    if (!tenantId || !selectedProductId) {
+    if (!tenantId || !selectedProductName) {
       setBomRows([]);
       return;
     }
@@ -301,7 +306,7 @@ export default function ProductBomPage() {
       .from('product_bom')
       .select('*, raw_materials(id, name, unit, unit_cost, current_stock)')
       .eq('tenant_id', tenantId)
-      .eq('product_id', selectedProductId)
+      .eq('product_name', selectedProductName)
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -312,7 +317,7 @@ export default function ProductBomPage() {
 
     setBomRows((data as unknown as BomRow[]) ?? []);
     setIsLoadingBom(false);
-  }, [tenantId, selectedProductId, showBanner]);
+  }, [tenantId, selectedProductName, showBanner]);
 
   useEffect(() => {
     fetchBomForProduct();
@@ -331,8 +336,8 @@ export default function ProductBomPage() {
   }, [products, productSearch]);
 
   const selectedProduct = useMemo(
-    () => products.find((p) => p.id === selectedProductId) ?? null,
-    [products, selectedProductId]
+    () => products.find((p) => p.name === selectedProductName) ?? null,
+    [products, selectedProductName]
   );
 
   const estimatedUnitCost = useMemo(
@@ -371,7 +376,7 @@ export default function ProductBomPage() {
   // --------------------------------------------------------------------------
 
   const handleSaveBomRow = async () => {
-    if (!tenantId || !selectedProductId) return;
+    if (!tenantId || !selectedProductName) return;
 
     if (!bomForm.material_id) {
       showBanner('error', 'الرجاء اختيار الخامة');
@@ -409,7 +414,7 @@ export default function ProductBomPage() {
     } else {
       const { error } = await supabase.from('product_bom').insert({
         tenant_id: tenantId,
-        product_id: selectedProductId,
+        product_name: selectedProductName,
         material_id: bomForm.material_id,
         quantity_required: quantity,
         notes: bomForm.notes.trim() || null,
@@ -520,11 +525,11 @@ export default function ProductBomPage() {
             <div className="flex flex-col gap-1">
               {filteredProducts.map((product) => (
                 <button
-                  key={product.id}
-                  onClick={() => setSelectedProductId(product.id)}
+                  key={product.name}
+                  onClick={() => setSelectedProductName(product.name)}
                   className={cn(
                     'rounded-xl px-3 py-2.5 text-right text-sm transition',
-                    product.id === selectedProductId
+                    product.name === selectedProductName
                       ? 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/30'
                       : 'text-[#F0EDE8]/70 hover:bg-white/5'
                   )}
