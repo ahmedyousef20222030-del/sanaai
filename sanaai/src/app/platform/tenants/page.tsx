@@ -55,7 +55,7 @@ const PLAN_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active:    { label: 'نشط',       color: 'bg-green-500/15 text-green-400 border-green-500/30' },
   trial:     { label: 'تجريبي',    color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
   suspended: { label: 'موقوف',     color: 'bg-red-500/15 text-red-400 border-red-500/30' },
-  cancelled: { label: 'ملغي',      color: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
+  canceled:  { label: 'ملغي',      color: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -217,8 +217,9 @@ export default function PlatformTenantsPage() {
   async function updateTenantField(tenantId: string, field: string, value: any, actionMeta?: { action: string; details?: Record<string, any> }) {
     setSavingId(tenantId)
     try {
-      const { error } = await supabase.from('tenants').update({ [field]: value }).eq('id', tenantId)
+      const { data, error } = await supabase.from('tenants').update({ [field]: value }).eq('id', tenantId).select('id')
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('لم يتم تعديل أي صف (تحقق من الصلاحيات)')
       setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, [field]: value } : t))
       if (actionMeta) await logAction(tenantId, actionMeta.action, actionMeta.details)
     } catch (err: any) {
@@ -296,11 +297,13 @@ export default function PlatformTenantsPage() {
     const t = suspendModal.tenant
     setSavingId(t.id)
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('tenants')
         .update({ plan_status: 'suspended', suspend_reason: suspendReasonInput || null })
         .eq('id', t.id)
+        .select('id')
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('لم يتم تعديل أي صف (تحقق من الصلاحيات)')
       setTenants(prev => prev.map(x => x.id === t.id ? { ...x, plan_status: 'suspended', suspend_reason: suspendReasonInput || null } : x))
       await logAction(t.id, 'suspend', { reason: suspendReasonInput || null })
       setSuspendModal(null)
@@ -313,8 +316,22 @@ export default function PlatformTenantsPage() {
 
   async function handleActivate(t: Tenant) {
     if (!confirm(`تفعيل شركة "${t.name}" مرة أخرى؟`)) return
-    await updateTenantField(t.id, 'plan_status', 'active', { action: 'activate' })
-    setTenants(prev => prev.map(x => x.id === t.id ? { ...x, suspend_reason: null } : x))
+    setSavingId(t.id)
+    try {
+      const { data, error } = await supabase
+        .from('tenants')
+        .update({ plan_status: 'active', suspend_reason: null })
+        .eq('id', t.id)
+        .select('id')
+      if (error) throw error
+      if (!data || data.length === 0) throw new Error('لم يتم تعديل أي صف (تحقق من الصلاحيات)')
+      setTenants(prev => prev.map(x => x.id === t.id ? { ...x, plan_status: 'active', suspend_reason: null } : x))
+      await logAction(t.id, 'activate')
+    } catch (err: any) {
+      alert('تعذر تفعيل الشركة: ' + err.message)
+    } finally {
+      setSavingId(null)
+    }
   }
 
   async function extendTrial(t: Tenant, days: number) {
@@ -371,8 +388,9 @@ export default function PlatformTenantsPage() {
     setSavingId(t.id)
     try {
       const nowIso = new Date().toISOString()
-      const { error } = await supabase.from('tenants').update({ deleted_at: nowIso }).eq('id', t.id)
+      const { data, error } = await supabase.from('tenants').update({ deleted_at: nowIso }).eq('id', t.id).select('id')
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('لم يتم تعديل أي صف (تحقق من الصلاحيات)')
       setTenants(prev => prev.map(x => x.id === t.id ? { ...x, deleted_at: nowIso } : x))
       await logAction(t.id, 'delete')
       setDeleteModal(null)
@@ -458,7 +476,7 @@ export default function PlatformTenantsPage() {
             <option value="active">نشط</option>
             <option value="trial">تجريبي</option>
             <option value="suspended">موقوف</option>
-            <option value="cancelled">ملغي</option>
+            <option value="canceled">ملغي</option>
           </select>
           <select
             value={planFilter}
@@ -604,7 +622,7 @@ export default function PlatformTenantsPage() {
                     <option value="active">نشط</option>
                     <option value="trial">تجريبي</option>
                     <option value="suspended">موقوف</option>
-                    <option value="cancelled">ملغي</option>
+                    <option value="canceled">ملغي</option>
                   </select>
                   <button
                     onClick={() => setExpandedId(isExpanded ? null : t.id)}
@@ -694,7 +712,7 @@ export default function PlatformTenantsPage() {
                             >
                               <option value="active">نشط</option>
                               <option value="past_due">متأخر السداد</option>
-                              <option value="cancelled">ملغي</option>
+                              <option value="canceled">ملغي</option>
                             </select>
                           </div>
                           <div className="grid grid-cols-2 gap-3">
