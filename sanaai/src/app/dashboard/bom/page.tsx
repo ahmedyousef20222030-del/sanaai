@@ -60,6 +60,14 @@ interface BomFormState {
   notes: string;
 }
 
+interface BulkRow {
+  material_id: string;
+  quantity_required: string;
+  notes: string;
+}
+
+const EMPTY_BULK_ROW: BulkRow = { material_id: '', quantity_required: '', notes: '' };
+
 const EMPTY_BOM_FORM: BomFormState = {
   id: null,
   material_id: '',
@@ -188,6 +196,7 @@ export default function ProductBomPage() {
 
   const [showFormModal, setShowFormModal] = useState<boolean>(false);
   const [bomForm, setBomForm] = useState<BomFormState>(EMPTY_BOM_FORM);
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([{ ...EMPTY_BULK_ROW }]);
   const [isSavingBom, setIsSavingBom] = useState<boolean>(false);
 
   const [rowToDelete, setRowToDelete] = useState<BomRow | null>(null);
@@ -353,11 +362,32 @@ export default function ProductBomPage() {
   );
 
   // --------------------------------------------------------------------------
+  // إضافة أكثر من خامة دفعة واحدة
+  // --------------------------------------------------------------------------
+
+  const updateBulkRow = (index: number, patch: Partial<BulkRow>) =>
+    setBulkRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+
+  const addBulkRow = () => setBulkRows((rows) => [...rows, { ...EMPTY_BULK_ROW }]);
+
+  const removeBulkRow = (index: number) =>
+    setBulkRows((rows) => (rows.length === 1 ? rows : rows.filter((_, i) => i !== index)));
+
+  // الخامات المتاحة لصف معيّن: غير موجودة في المعادلة وغير مختارة في صف آخر
+  const materialsForBulkRow = (index: number) => {
+    const takenElsewhere = new Set(
+      bulkRows.filter((_, i) => i !== index).map((r) => r.material_id).filter(Boolean)
+    );
+    return materialOptions.filter((m) => !materialsAlreadyInBom.has(m.id) && !takenElsewhere.has(m.id));
+  };
+
+  // --------------------------------------------------------------------------
   // فتح مودال الإضافة / التعديل
   // --------------------------------------------------------------------------
 
   const openAddModal = () => {
     setBomForm(EMPTY_BOM_FORM);
+    setBulkRows([{ ...EMPTY_BULK_ROW }]);
     setShowFormModal(true);
   };
 
@@ -375,8 +405,63 @@ export default function ProductBomPage() {
   // حفظ صف BOM (إضافة / تعديل)
   // --------------------------------------------------------------------------
 
+  const handleSaveBulk = async () => {
+    if (!tenantId || !selectedProductName) return;
+
+    // تجاهل الصفوف الفارغة تماماً
+    const rows = bulkRows.filter((r) => r.material_id || r.quantity_required);
+    if (rows.length === 0) {
+      showBanner('error', 'أضف خامة واحدة على الأقل');
+      return;
+    }
+
+    for (const r of rows) {
+      if (!r.material_id) {
+        showBanner('error', 'الرجاء اختيار الخامة في كل الصفوف');
+        return;
+      }
+      const q = Number(r.quantity_required);
+      if (Number.isNaN(q) || q <= 0) {
+        showBanner('error', 'الرجاء إدخال كمية صحيحة أكبر من صفر في كل الصفوف');
+        return;
+      }
+    }
+
+    setIsSavingBom(true);
+
+    // insert واحد لكل الصفوف: يتحفظوا كلهم أو ولا واحد
+    const { error } = await supabase.from('product_bom').insert(
+      rows.map((r) => ({
+        tenant_id: tenantId,
+        product_name: selectedProductName,
+        material_id: r.material_id,
+        quantity_required: Number(r.quantity_required),
+        notes: r.notes.trim() || null,
+      }))
+    );
+
+    if (error) {
+      showBanner(
+        'error',
+        error.code === '23505' ? 'إحدى الخامات مضافة بالفعل لمعادلة هذا المنتج' : 'تعذر إضافة الخامات للمعادلة'
+      );
+      setIsSavingBom(false);
+      return;
+    }
+
+    showBanner('success', rows.length > 1 ? `تمت إضافة ${rows.length} خامات إلى المعادلة` : 'تمت إضافة الخامة إلى المعادلة');
+    setIsSavingBom(false);
+    setShowFormModal(false);
+    fetchBomForProduct();
+  };
+
   const handleSaveBomRow = async () => {
     if (!tenantId || !selectedProductName) return;
+
+    if (!bomForm.id) {
+      await handleSaveBulk();
+      return;
+    }
 
     if (!bomForm.material_id) {
       showBanner('error', 'الرجاء اختيار الخامة');
@@ -411,24 +496,6 @@ export default function ProductBomPage() {
         return;
       }
       showBanner('success', 'تم تحديث معادلة التصنيع بنجاح');
-    } else {
-      const { error } = await supabase.from('product_bom').insert({
-        tenant_id: tenantId,
-        product_name: selectedProductName,
-        material_id: bomForm.material_id,
-        quantity_required: quantity,
-        notes: bomForm.notes.trim() || null,
-      });
-
-      if (error) {
-        showBanner(
-          'error',
-          error.code === '23505' ? 'هذه الخامة مضافة بالفعل لمعادلة هذا المنتج' : 'تعذر إضافة الخامة للمعادلة'
-        );
-        setIsSavingBom(false);
-        return;
-      }
-      showBanner('success', 'تمت إضافة الخامة إلى معادلة التصنيع');
     }
 
     setIsSavingBom(false);
@@ -582,7 +649,7 @@ export default function ProductBomPage() {
                     className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-2 text-xs font-semibold text-[#0D1B2A] transition hover:bg-amber-400"
                   >
                     <Plus className="h-4 w-4" />
-                    إضافة خامة للمعادلة
+                    إضافة خامات للمعادلة
                   </button>
                 </div>
 
@@ -661,72 +728,128 @@ export default function ProductBomPage() {
       {/* ====================================================================== */}
       {showFormModal && (
         <ModalShell
-          title={bomForm.id ? 'تعديل خامة في المعادلة' : 'إضافة خامة إلى المعادلة'}
+          title={bomForm.id ? 'تعديل خامة في المعادلة' : `إضافة خامات إلى معادلة: ${selectedProductName}`}
           onClose={() => !isSavingBom && setShowFormModal(false)}
+          maxWidth={bomForm.id ? 'max-w-md' : 'max-w-2xl'}
         >
-          <div className="flex flex-col gap-4">
-            <div>
-              <label className="mb-1.5 block text-xs text-[#F0EDE8]/50">الخامة</label>
-              <select
-                value={bomForm.material_id}
-                onChange={(e) => setBomForm((f) => ({ ...f, material_id: e.target.value }))}
-                disabled={!!bomForm.id}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50 disabled:opacity-50"
-              >
-                <option value="">اختر الخامة...</option>
-                {availableMaterialsForNewRow.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.unit})
-                  </option>
-                ))}
-              </select>
-              {bomForm.id && (
+          {bomForm.id ? (
+            /* ---------- تعديل صف واحد ---------- */
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="mb-1.5 block text-xs text-[#F0EDE8]/50">الخامة</label>
+                <select
+                  value={bomForm.material_id}
+                  disabled
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-[#F0EDE8] outline-none disabled:opacity-50"
+                >
+                  {availableMaterialsForNewRow.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.unit})
+                    </option>
+                  ))}
+                </select>
                 <p className="mt-1.5 text-xs text-[#F0EDE8]/40">
                   لتغيير الخامة نفسها، احذف هذا الصف وأضف خامة جديدة بدلاً منه.
                 </p>
-              )}
-            </div>
+              </div>
 
-            <div>
-              <label className="mb-1.5 block text-xs text-[#F0EDE8]/50">الكمية اللازمة لتصنيع وحدة واحدة</label>
-              <input
-                type="number"
-                min="0"
-                step="0.001"
-                value={bomForm.quantity_required}
-                onChange={(e) => setBomForm((f) => ({ ...f, quantity_required: e.target.value }))}
-                placeholder="0.000"
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50"
-              />
-            </div>
+              <div>
+                <label className="mb-1.5 block text-xs text-[#F0EDE8]/50">الكمية اللازمة لتصنيع وحدة واحدة</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={bomForm.quantity_required}
+                  onChange={(e) => setBomForm((f) => ({ ...f, quantity_required: e.target.value }))}
+                  placeholder="0.000"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50"
+                />
+              </div>
 
-            <div>
-              <label className="mb-1.5 block text-xs text-[#F0EDE8]/50">ملاحظات (اختياري)</label>
-              <textarea
-                value={bomForm.notes}
-                onChange={(e) => setBomForm((f) => ({ ...f, notes: e.target.value }))}
-                rows={2}
-                className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50"
-              />
+              <div>
+                <label className="mb-1.5 block text-xs text-[#F0EDE8]/50">ملاحظات (اختياري)</label>
+                <textarea
+                  value={bomForm.notes}
+                  onChange={(e) => setBomForm((f) => ({ ...f, notes: e.target.value }))}
+                  rows={2}
+                  className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50"
+                />
+              </div>
             </div>
+          ) : (
+            /* ---------- إضافة عدة خامات ---------- */
+            <div className="flex flex-col gap-3">
+              {bulkRows.map((row, index) => (
+                <div key={index} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+                  <div className="grid grid-cols-[1fr_120px_auto] items-center gap-2">
+                    <select
+                      value={row.material_id}
+                      onChange={(e) => updateBulkRow(index, { material_id: e.target.value })}
+                      className="w-full rounded-lg border border-white/10 bg-[#0D1B2A] px-3 py-2 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50"
+                    >
+                      <option value="">اختر الخامة...</option>
+                      {materialsForBulkRow(index).map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.unit})
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={row.quantity_required}
+                      onChange={(e) => updateBulkRow(index, { quantity_required: e.target.value })}
+                      placeholder="الكمية"
+                      className="w-full rounded-lg border border-white/10 bg-[#0D1B2A] px-3 py-2 text-sm text-[#F0EDE8] outline-none focus:border-amber-500/50"
+                    />
+                    <button
+                      type="button"
+                      title="حذف الصف"
+                      onClick={() => removeBulkRow(index)}
+                      disabled={bulkRows.length === 1}
+                      className="rounded-lg p-2 text-red-400/70 transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-30"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={row.notes}
+                    onChange={(e) => updateBulkRow(index, { notes: e.target.value })}
+                    placeholder="ملاحظات (اختياري)"
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-[#0D1B2A] px-3 py-2 text-xs text-[#F0EDE8] placeholder:text-[#F0EDE8]/30 outline-none focus:border-amber-500/50"
+                  />
+                </div>
+              ))}
 
-            <div className="mt-2 flex items-center justify-end gap-3">
               <button
-                onClick={() => setShowFormModal(false)}
-                disabled={isSavingBom}
-                className="rounded-xl px-4 py-2.5 text-sm font-medium text-[#F0EDE8]/60 transition hover:bg-white/5 disabled:opacity-40"
+                type="button"
+                onClick={addBulkRow}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-amber-500/30 py-2.5 text-xs font-semibold text-amber-400 transition hover:bg-amber-500/10"
               >
-                إلغاء
-              </button>
-              <button
-                onClick={handleSaveBomRow}
-                disabled={isSavingBom}
-                className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-[#0D1B2A] transition hover:bg-amber-400 disabled:opacity-60"
-              >
-                {isSavingBom && <Loader2 className="h-4 w-4 animate-spin" />}
-                {bomForm.id ? 'حفظ التعديلات' : 'إضافة إلى المعادلة'}
+                <Plus className="h-4 w-4" />
+                إضافة خامة أخرى
               </button>
             </div>
+          )}
+
+          <div className="mt-5 flex items-center justify-end gap-3">
+            <button
+              onClick={() => setShowFormModal(false)}
+              disabled={isSavingBom}
+              className="rounded-xl px-4 py-2.5 text-sm font-medium text-[#F0EDE8]/60 transition hover:bg-white/5 disabled:opacity-40"
+            >
+              إلغاء
+            </button>
+            <button
+              onClick={handleSaveBomRow}
+              disabled={isSavingBom}
+              className="flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-[#0D1B2A] transition hover:bg-amber-400 disabled:opacity-60"
+            >
+              {isSavingBom && <Loader2 className="h-4 w-4 animate-spin" />}
+              {bomForm.id ? 'حفظ التعديلات' : 'حفظ الخامات'}
+            </button>
           </div>
         </ModalShell>
       )}
