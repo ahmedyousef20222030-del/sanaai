@@ -34,13 +34,18 @@ export function middleware(request: NextRequest) {
         }
     }
 
-    // 2. تطبيق الحماية والتحقق من المصادقة على صفحات لوحة التحكم (Authentication Check)
+    // 2. تطبيق الحماية على صفحات لوحة التحكم (Authentication Check)
     if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
-        // البحث عن الـ Token أو ملف تعريف الدخول في الكوكيز (Cookies)
-        const authToken = request.cookies.get('sb-access-token') || request.cookies.get('next-auth.session-token');
+        // البحث عن كوكيز Supabase الحديثة أو القديمة بمرونة
+        const allCookies = request.cookies.getAll();
+        const hasAuthToken = allCookies.some(cookie => 
+            cookie.name.includes('-auth-token') || 
+            cookie.name.startsWith('sb-') || 
+            cookie.name === 'next-auth.session-token'
+        );
 
-        // إذا لم يكن المستخدم مسجلاً للدخول، يتم توجيهه مباشرة إلى صفحة تسجيل الدخول
-        if (!authToken) {
+        // إذا لم يكن هناك أي مؤشر لجلسة مسجلة، يتم التحويل لصفحة الدخول
+        if (!hasAuthToken) {
             const loginUrl = new URL('/auth/login', request.url);
             return NextResponse.redirect(loginUrl);
         }
