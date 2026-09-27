@@ -35,6 +35,8 @@ export interface DbUserRow {
   tenant_id: string
   role: string
   is_active: boolean
+  // 👈 إضافة حقل الهاتف ليتطابق 1:1 مع جدول public.users في قاعدة البيانات
+  phone?: string | null
   // Free-text job title set by the owner (or anyone with `/dashboard/permissions`
   // edit access) — e.g. "مصمم أفلام تطريز", "فنى تطريز", "مصمم جرافيك", "سنجر",
   // "أوفر", "مقص دار", "أورليه", or any other title. Purely descriptive: it
@@ -176,6 +178,7 @@ export type ApiResponse<T> = SuccessResponse<T> | ErrorResponseData
 export interface AuthUser {
   id: string
   email?: string
+  phone?: string // 👈 متاح هنا أيضاً لاستخدامه في إشعارات الواتساب والـ SMS
   role: UserRole
   tenantId: string
   permissions: Permission[]
