@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -7,13 +7,9 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables. Check .env.local')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
-})
+// createBrowserClient بيخزن الجلسة في كوكيز الدومين تلقائياً
+// (بدل localStorage) — ده اللي بيخلي الميدل وير يقدر يشوفها ويتحقق منها
+export const supabase = createBrowserClient(supabaseUrl, supabaseKey)
 
 // =============================================================================
 // 🔐 AUTH SERVICE - إدارة الهوية والمصنع
@@ -25,29 +21,29 @@ export const auth = {
     return data
   },
 
-  async signUp({ 
-    email, 
-    password, 
-    factoryName, 
-    ownerName, 
-    phone 
+  async signUp({
+    email,
+    password,
+    factoryName,
+    ownerName,
+    phone
   }: {
     email: string
     password: string
     factoryName: string
     ownerName: string
-    phone?: string // 👈 دعم استقبال رقم الهاتف والواتساب
+    phone?: string
   }) {
     // يتم إنشاء المصنع والمستخدم تلقائياً عبر Trigger في القاعدة (handle_new_user)
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { 
-        data: { 
-          full_name: ownerName, 
+      options: {
+        data: {
+          full_name: ownerName,
           factory_name: factoryName,
-          phone: phone ? phone.trim() : null // 👈 تمرير الهاتف لقاعدة البيانات
-        } 
+          phone: phone ? phone.trim() : null
+        }
       },
     })
     if (error) throw error
@@ -68,7 +64,7 @@ export const auth = {
       .select('*, tenants(*)')
       .eq('id', user.id)
       .maybeSingle()
-    
+
     if (error) console.error('Error fetching user profile:', error)
     return { ...user, profile }
   },
@@ -88,11 +84,11 @@ export const ordersApi = {
       .select('*, clients(name, phone, sector), production(progress_pct)') // جلب نسبة الإنجاز
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
-    
+
     if (status) query = query.eq('status', status)
     if (sector) query = query.eq('sector', sector)
     if (search) query = query.ilike('order_number', `%${search}%`)
-    
+
     const { data, error } = await query
     if (error) throw error
     return data
@@ -101,7 +97,7 @@ export const ordersApi = {
   async create(orderData: any) {
     // 🛠️ حقن الـ tenant_id إجبارياً لضمان قبول الطلب من قبل RLS
     const { data: me } = await supabase.from('users').select('tenant_id').maybeSingle()
-    
+
     const payload = {
       ...orderData,
       tenant_id: me?.tenant_id,
@@ -134,7 +130,7 @@ export const productionApi = {
     let query = supabase.from('production')
       .select('*, orders(order_number, quantity, expected_delivery)')
       .order('created_at', { ascending: false })
-    
+
     if (status) query = query.eq('final_status', status)
     const { data, error } = await query
     if (error) throw error
@@ -162,7 +158,7 @@ export const clientsApi = {
 
   async create(clientData: any) {
     const { data: me } = await supabase.from('users').select('tenant_id').maybeSingle()
-    
+
     const payload = {
       ...clientData,
       tenant_id: me?.tenant_id // حقن معرف المصنع
@@ -211,10 +207,10 @@ export const storageApi = {
   async uploadAttachment(file: File, orderId: string) {
     const ext = file.name.split('.').pop()
     const path = `attachments/${orderId}/${Date.now()}.${ext}`
-    
+
     const { error } = await supabase.storage.from('order-attachments').upload(path, file)
     if (error) throw error
-    
+
     const { data } = supabase.storage.from('order-attachments').getPublicUrl(path)
     return data.publicUrl
   },
@@ -222,10 +218,10 @@ export const storageApi = {
   async uploadLogo(file: File, tenantId: string) {
     const ext = file.name.split('.').pop()
     const path = `logos/${tenantId}.${ext}`
-    
+
     const { error } = await supabase.storage.from('tenant-assets').upload(path, file, { upsert: true })
     if (error) throw error
-    
+
     const { data } = supabase.storage.from('tenant-assets').getPublicUrl(path)
     return data.publicUrl
   },
