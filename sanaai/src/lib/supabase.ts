@@ -20,37 +20,59 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 // =============================================================================
 export const auth = {
   async signIn({ email, password }: { email: string; password: string }) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     if (error) throw error
     return data
   },
-  async signUp({ email, password, factoryName, ownerName }: {
-    email: string; password: string; factoryName: string; ownerName: string
+
+  async signUp({ 
+    email, 
+    password, 
+    factoryName, 
+    ownerName, 
+    phone 
+  }: {
+    email: string
+    password: string
+    factoryName: string
+    ownerName: string
+    phone?: string // 👈 دعم استقبال رقم الهاتف والواتساب
   }) {
     // يتم إنشاء المصنع والمستخدم تلقائياً عبر Trigger في القاعدة (handle_new_user)
     const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: ownerName, factory_name: factoryName } },
+      email: email.trim(),
+      password,
+      options: { 
+        data: { 
+          full_name: ownerName, 
+          factory_name: factoryName,
+          phone: phone ? phone.trim() : null // 👈 تمرير الهاتف لقاعدة البيانات
+        } 
+      },
     })
     if (error) throw error
     return data
   },
+
   async signOut() {
     await supabase.auth.signOut()
   },
+
   async getUser() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return null
-    // جلب بيانات المستخدم مع بيانات المصنع المرتبط به (الـ tenant)
+
+    // جلب بيانات المستخدم والمصنع بأمان باستخدام maybeSingle لمنع توقف الصفحة
     const { data: profile, error } = await supabase
       .from('users')
       .select('*, tenants(*)')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
     
     if (error) console.error('Error fetching user profile:', error)
     return { ...user, profile }
   },
+
   onAuthChange(callback: any) {
     return supabase.auth.onAuthStateChange(callback)
   },
@@ -78,7 +100,7 @@ export const ordersApi = {
 
   async create(orderData: any) {
     // 🛠️ حقن الـ tenant_id إجبارياً لضمان قبول الطلب من قبل RLS
-    const { data: me } = await supabase.from('users').select('tenant_id').single()
+    const { data: me } = await supabase.from('users').select('tenant_id').maybeSingle()
     
     const payload = {
       ...orderData,
@@ -139,7 +161,7 @@ export const clientsApi = {
   },
 
   async create(clientData: any) {
-    const { data: me } = await supabase.from('users').select('tenant_id').single()
+    const { data: me } = await supabase.from('users').select('tenant_id').maybeSingle()
     
     const payload = {
       ...clientData,
@@ -163,8 +185,8 @@ export const clientsApi = {
 // =============================================================================
 export const dashboardApi = {
   async getSummary() {
-    // استدعاء الـ View التي أصلحناها (SECURITY INVOKER)
-    const { data, error } = await supabase.from('dashboard_summary').select('*').single()
+    // استدعاء الـ View (SECURITY INVOKER)
+    const { data, error } = await supabase.from('dashboard_summary').select('*').maybeSingle()
     if (error) throw error
     return data
   },
@@ -190,7 +212,6 @@ export const storageApi = {
     const ext = file.name.split('.').pop()
     const path = `attachments/${orderId}/${Date.now()}.${ext}`
     
-    // استخدام bucket 'order-attachments' كما في السكيما
     const { error } = await supabase.storage.from('order-attachments').upload(path, file)
     if (error) throw error
     
