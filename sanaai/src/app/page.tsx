@@ -1,11 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function LandingPage() {
-  const router = useRouter()
   const [modal, setModal] = useState<'signup' | 'login' | null>(null)
   const [tab, setTab] = useState<'signup' | 'login'>('signup')
   const [loading, setLoading] = useState(false)
@@ -69,9 +67,25 @@ export default function LandingPage() {
       return 
     }
     
+    // الإيميل مسجّل قبل كده: Supabase بيرجّع user بدون identities ومن غير خطأ
+    if (authData.user && authData.user.identities?.length === 0) {
+      showToast('⚠️ هذا البريد مسجّل بالفعل، جرّب تسجيل الدخول', 'warning')
+      setLoading(false)
+      return
+    }
+
+    // لو تأكيد الإيميل مفعّل مش هتكون فيه جلسة لحد ما المستخدم يأكد
+    if (!authData.session) {
+      showToast('📧 تم إنشاء حسابك. افتح بريدك وأكّد الإيميل ثم سجّل دخول', 'info')
+      setModal(null)
+      setLoading(false)
+      return
+    }
+
     showToast(`✅ أهلاً ${name}! تم إنشاء حساب ${factory} بنجاح`, 'success')
     setModal(null)
-    setTimeout(() => router.push('/dashboard'), 1500)
+    // تحويل كامل للصفحة عشان الكوكيز تتزامن مع الـ middleware
+    setTimeout(() => { window.location.href = '/dashboard' }, 1500)
     setLoading(false)
   }
 
@@ -85,7 +99,7 @@ export default function LandingPage() {
     
     showToast('✅ مرحباً بعودتك!', 'success')
     setModal(null)
-    setTimeout(() => router.push('/dashboard'), 800)
+    setTimeout(() => { window.location.href = '/dashboard' }, 800)
     setLoading(false)
   }
 
@@ -120,7 +134,7 @@ export default function LandingPage() {
             دخول
           </button>
           <button onClick={() => { setTab('signup'); setModal('signup') }} className="px-4 py-1.5 md:px-5 md:py-2 text-xs md:text-sm font-bold bg-[#C8963E] text-black rounded-xl hover:bg-[#D4A843] transition shadow-lg shadow-[#C8963E]/20">
-            ابدأ ٧ أيام مجاناً
+            ابدأ ٣ أيام مجاناً
           </button>
         </div>
       </nav>
@@ -144,7 +158,7 @@ export default function LandingPage() {
           
           <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-8">
             <button onClick={() => { setTab('signup'); setModal('signup') }} className="w-full sm:w-auto px-6 py-3.5 bg-[#C8963E] text-black font-black rounded-2xl hover:bg-[#D4A843] transition shadow-lg shadow-[#C8963E]/20 text-sm md:text-base">
-              🚀 ابدأ ٧ أيام مجاناً
+              🚀 ابدأ ٣ أيام مجاناً
             </button>
             <a href="#features" className="w-full sm:w-auto px-6 py-3.5 border border-white/15 text-white font-bold rounded-2xl hover:bg-white/5 transition flex items-center justify-center gap-2 text-sm md:text-base">
               ← شوف الميزات
@@ -354,7 +368,7 @@ export default function LandingPage() {
                 </ul>
                 
                 <button onClick={() => { setTab('signup'); setModal('signup') }} className={`w-full py-3.5 rounded-xl font-black transition-all text-xs md:text-sm ${plan.featured ? 'bg-[#C8963E] text-black hover:bg-[#D4A843] shadow-md shadow-[#C8963E]/20' : 'border border-[#C8963E]/30 text-[#C8963E] hover:bg-[#C8963E]/10'}`}>
-                  🚀 ابدأ ٧ أيام مجاناً ←
+                  🚀 ابدأ ٣ أيام مجاناً ←
                 </button>
               </div>
             ))}
@@ -400,7 +414,7 @@ export default function LandingPage() {
             {[
               { q: 'هل أحتاج خبرة تقنية؟', a: 'لا على الإطلاق. صَنَاعي مصمم للمصنعيين. الواجهة بالعربي بالكامل وبسيطة جداً.' },
               { q: 'هل بياناتي آمنة؟', a: 'نعم. كل مصنع له بيانات معزولة تماماً. نستخدم تشفير SSL وقواعد بيانات Supabase المؤمنة.' },
-              { q: 'إيه اللي بيحصل بعد الـ ٧ أيام المجانية؟', a: 'هنبعتلك تذكير قبل الانتهاء. مفيش أي رسوم تلقائية هتتخصم بدون موافقتك الصريحة.' },
+              { q: 'إيه اللي بيحصل بعد الـ ٣ أيام المجانية؟', a: 'هنبعتلك تذكير قبل الانتهاء. مفيش أي رسوم تلقائية هتتخصم بدون موافقتك الصريحة.' },
               { q: 'هل يشتغل على الموبايل؟', a: 'نعم. الداشبورد متجاوب ويشتغل على أي موبايل أو تابلت.' },
               { q: 'هل أقدر أنقل بياناتي؟', a: 'بالطبع. تقدر تصدّر كل شيء بصيغة Excel أو CSV بضغطة زر.' },
             ].map((f, i) => (
@@ -423,12 +437,12 @@ export default function LandingPage() {
           مصنعك يستحق <span className="text-[#C8963E]">نظاماً حقيقياً</span>
         </h2>
         <p className="text-[#7A8A9E] text-sm md:text-base mb-8 max-w-2xl mx-auto leading-relaxed">
-          انضم لـ ٢٠٠ مصنع شركاء نجاح أول مرحلة واستفد من تثبيت السعر لمدة ٥ سنين. ابدأ التجربة المجانية لمدة ٧ أيام — لا يلزم بطاقة ائتمان.
+          انضم لـ ٢٠٠ مصنع شركاء نجاح أول مرحلة واستفد من تثبيت السعر لمدة ٥ سنين. ابدأ التجربة المجانية لمدة ٣ أيام — لا يلزم بطاقة ائتمان.
         </p>
         <button onClick={() => { setTab('signup'); setModal('signup') }} className="px-8 py-4 bg-[#C8963E] text-black font-black rounded-2xl hover:bg-[#D4A843] transition shadow-xl shadow-[#C8963E]/20 text-sm md:text-base">
-          🚀 ابدأ ٧ أيام مجاناً ←
+          🚀 ابدأ ٣ أيام مجاناً ←
         </button>
-        <p className="mt-5 text-[11px] md:text-xs font-bold text-[#7A8A9E]">٧ أيام مجاناً · بدون بطاقة ائتمان · إلغاء في أي وقت</p>
+        <p className="mt-5 text-[11px] md:text-xs font-bold text-[#7A8A9E]">٣ أيام مجاناً · بدون بطاقة ائتمان · إلغاء في أي وقت</p>
       </section>
 
       {/* ── Footer ── */}
@@ -505,7 +519,7 @@ export default function LandingPage() {
                   <input type="password" placeholder="كلمة المرور (٨ أحرف+) *" value={signup.password} onChange={e => setSignup({...signup, password: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs md:text-sm text-white focus:border-[#C8963E]/50 outline-none transition text-left placeholder-gray-500 text-right focus:text-left dir-auto" />
                 </div>
                 <button onClick={handleSignup} disabled={loading} className="w-full py-3.5 mt-2 bg-[#C8963E] text-black font-bold rounded-xl hover:bg-[#D4A843] transition disabled:opacity-50 text-sm">
-                  {loading ? 'جاري الإنشاء...' : '🚀 ابدأ ٧ أيام مجاناً'}
+                  {loading ? 'جاري الإنشاء...' : '🚀 ابدأ ٣ أيام مجاناً'}
                 </button>
                 <p className="text-[10px] md:text-[11px] text-[#7A8A9E] text-center font-bold mt-2">بدون بطاقة ائتمان · إلغاء في أي وقت</p>
               </div>
