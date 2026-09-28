@@ -75,6 +75,24 @@ export const auth = {
 }
 
 // =============================================================================
+// 🏭 HELPER - جلب tenant_id للمستخدم الحالي فقط (بالـ id، مش أي صف تسمح به RLS)
+// =============================================================================
+async function getCurrentTenantId(): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('يجب تسجيل الدخول أولاً')
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('tenant_id')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data?.tenant_id) throw new Error('تعذر تحديد المصنع الخاص بالمستخدم الحالي')
+  return data.tenant_id as string
+}
+
+// =============================================================================
 // 📦 ORDERS API - إدارة الطلبات (مطابق للملف الهندسي)
 // =============================================================================
 export const ordersApi = {
@@ -96,11 +114,11 @@ export const ordersApi = {
 
   async create(orderData: any) {
     // 🛠️ حقن الـ tenant_id إجبارياً لضمان قبول الطلب من قبل RLS
-    const { data: me } = await supabase.from('users').select('tenant_id').maybeSingle()
+    const tenantId = await getCurrentTenantId()
 
     const payload = {
       ...orderData,
-      tenant_id: me?.tenant_id,
+      tenant_id: tenantId,
       total_amount: orderData.total_amount || orderData.total_price, // توحيد المسميات
       deposit_paid: orderData.deposit_paid || orderData.paid,       // توحيد المسميات
     }
@@ -157,11 +175,11 @@ export const clientsApi = {
   },
 
   async create(clientData: any) {
-    const { data: me } = await supabase.from('users').select('tenant_id').maybeSingle()
+    const tenantId = await getCurrentTenantId()
 
     const payload = {
       ...clientData,
-      tenant_id: me?.tenant_id // حقن معرف المصنع
+      tenant_id: tenantId // حقن معرف المصنع
     }
 
     const { data, error } = await supabase.from('clients').insert(payload).select().single()
