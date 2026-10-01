@@ -452,7 +452,7 @@ export default function LandingPage() {
           <div className="text-[10px] md:text-xs text-[#7A8A9E] font-medium">© 2026 صَنَاعي — تطوير حلول الويب بواسطة أحمد يوسف · جميع الحقوق محفوظة</div>
         </div>
         <div className="flex flex-wrap justify-center gap-4 md:gap-6 text-[11px] md:text-xs font-bold text-[#7A8A9E]">
-          {['سياسة الخصوصية', 'الشروط والأحكام', 'تواصل معنا 01069936787'].map(l => (
+          {['سياسة الخصوصية', 'الشروط والأحكام', 'تواصل معنا 01555111792'].map(l => (
             <a key={l} href="#" className="hover:text-white transition">{l}</a>
           ))}
         </div>
@@ -460,7 +460,7 @@ export default function LandingPage() {
 
       {/* ── زر الواتساب العائم (Floating WhatsApp Button) ── */}
       <a
-        href="https://wa.me/201069936787?text=%D9%85%D8%B1%D8%AD%D8%A8%D8%A7%D9%8B%D8%8C%20%D8%A3%D8%B1%D9%8A%D8%AF%20%D8%A7%D9%84%D8%A7%D8%B3%D8%AA%D9%81%D8%B3%D8%A7%D8%B1%20%D8%B9%D9%86%20%D9%86%D8%B8%D8%A7%D9%85%20%D8%B5%D9%8E%D9%86%D9%8E%D8%A7%D8%B9%D9%8A"
+        href="https://wa.me/201555111792?text=%D9%85%D8%B1%D8%AD%D8%A8%D8%A7%D9%8B%D8%8C%20%D8%A3%D8%B1%D9%8A%D8%AF%20%D8%A7%D9%84%D8%A7%D8%B3%D8%AA%D9%81%D8%B3%D8%A7%D8%B1%20%D8%B9%D9%86%20%D9%86%D8%B8%D8%A7%D9%85%20%D8%B5%D9%8E%D9%86%D9%8E%D8%A7%D8%B9%D9%8A"
         target="_blank"
         rel="noopener noreferrer"
         aria-label="تواصل معنا عبر واتساب"
